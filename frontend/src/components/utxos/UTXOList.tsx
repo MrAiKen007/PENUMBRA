@@ -69,38 +69,42 @@ export function UTXOList({ selectable, onSelectionChange }: UTXOListProps) {
       <div
         key={utxo.utxo_id}
         onClick={() => selectable && toggleUtxo(utxo.utxo_id)}
-        className={`group flex items-center gap-3 p-3 rounded-xl border-2 transition-all cursor-pointer ${
+        className={`group flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 cursor-pointer ${
           isSelected
-            ? 'border-[#FF5533] bg-[#FF5533]/5'
+            ? 'border-[#FF5533]/50 bg-[#FF5533]/5 shadow-sm'
             : useLabelStyles
               ? `border-transparent ${styles.bg} hover:brightness-[0.98]`
-              : 'border-[#E8E8E8] bg-white hover:border-[#D0D0D0]'
+              : 'border-[#E8E8E8] bg-white hover:border-[#D0D0D0] hover:shadow-sm'
         }`}
       >
         {selectable && (
-          <Checkbox
-            checked={isSelected}
-            onCheckedChange={() => toggleUtxo(utxo.utxo_id)}
-          />
+          <div className="flex-shrink-0">
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => toggleUtxo(utxo.utxo_id)}
+            />
+          </div>
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-sm text-[#0A0A0A]">
-              {truncateTxid(utxo.txid)}
-              <span className="text-[#6B6B6B]">:{utxo.vout}</span>
-            </span>
-            <span className="font-semibold text-[#0A0A0A]">{formatBTC(utxo.value)} BTC</span>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm text-[#0A0A0A]">
+                {truncateTxid(utxo.txid)}
+              </span>
+              <span className="text-xs text-[#9B9B9B] font-mono">:{utxo.vout}</span>
+            </div>
+            <span className="font-semibold text-[#0A0A0A] text-sm whitespace-nowrap">{formatBTC(utxo.value)} BTC</span>
           </div>
           {useLabelStyles ? (
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className={`${styles.text} ${styles.border} bg-white/50`}>
+            <div className="flex items-center gap-2 mt-2">
+              <Badge variant="outline" className={`${styles.text} ${styles.border} bg-white/60 text-xs`}>
                 {getUTXOLabelName(utxo.label)}
               </Badge>
-              {!utxo.confirmed && <span className="text-xs text-[#d97706]">Pendente</span>}
+              {!utxo.confirmed && <span className="text-xs text-[#d97706] font-medium">Pendente</span>}
             </div>
           ) : (
-            !utxo.confirmed && <span className="text-xs text-[#d97706]">Aguardando confirmação</span>
+            !utxo.confirmed && <span className="text-xs text-[#d97706] font-medium mt-1.5 inline-block">Aguardando confirmação</span>
           )}
         </div>
       </div>
@@ -109,7 +113,7 @@ export function UTXOList({ selectable, onSelectionChange }: UTXOListProps) {
 
   const renderFilteredList = () => {
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         {filteredUtxos.map((utxo) => renderUtxoItem(utxo, true))}
       </div>
     )
@@ -126,19 +130,19 @@ export function UTXOList({ selectable, onSelectionChange }: UTXOListProps) {
     const labelOrder: UTXOLabel[] = ['safe', 'kyc', 'mixed', 'doxxic', 'unknown']
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {labelOrder.map((label) => {
           const group = groupedUtxos[label]
           if (!group || group.length === 0) return null
 
           return (
-            <div key={label} className="space-y-2">
-              <div className="flex items-center gap-2">
+            <div key={label} className="space-y-3">
+              <div className="flex items-center gap-2 pb-1">
                 <div className={`w-2 h-2 rounded-full ${labelStyles[label].bg.replace('/10', '')}`} />
                 <h4 className="text-sm font-semibold text-[#0A0A0A]">{getUTXOLabelName(label)}s</h4>
                 <span className="text-xs text-[#6B6B6B]">({group.length})</span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {group.map((utxo) => renderUtxoItem(utxo, false))}
               </div>
             </div>
@@ -157,7 +161,7 @@ export function UTXOList({ selectable, onSelectionChange }: UTXOListProps) {
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as UTXOLabel | 'all')}
-            className="text-sm bg-white border border-[#E0E0E0] rounded-lg px-3 py-1.5 focus:border-[#FF5533]/50 focus:ring-2 focus:ring-[#FF5533]/20 outline-none"
+            className="text-sm bg-white border border-[#E0E0E0] rounded-lg px-3 py-1.5 text-[#0A0A0A] focus:border-[#FF5533]/50 focus:ring-2 focus:ring-[#FF5533]/20 outline-none"
           >
             <option value="all">Todos</option>
             <option value="safe">Seguro</option>
@@ -191,16 +195,16 @@ export function UTXOList({ selectable, onSelectionChange }: UTXOListProps) {
         )}
 
         {isLoading && !error && utxos.length === 0 && (
-          <div className="space-y-4 py-2">
+          <div className="space-y-3 py-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex gap-3 p-3 rounded-xl border border-[#E8E8E8] animate-pulse">
+              <div key={i} className="flex gap-4 p-4 rounded-xl border border-[#E8E8E8] animate-pulse">
                 {selectable && <div className="w-5 h-5 rounded bg-[#E8E8E8]" />}
                 <div className="flex-1 space-y-2">
                   <div className="flex justify-between">
-                    <div className="h-4 w-24 bg-[#E8E8E8] rounded" />
-                    <div className="h-4 w-16 bg-[#E8E8E8] rounded" />
+                    <div className="h-4 w-32 bg-[#E0E0E0] rounded" />
+                    <div className="h-4 w-20 bg-[#E0E0E0] rounded" />
                   </div>
-                  <div className="h-3 w-20 bg-[#E8E8E8] rounded" />
+                  <div className="h-3 w-24 bg-[#E0E0E0] rounded" />
                 </div>
               </div>
             ))}

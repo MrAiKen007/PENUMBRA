@@ -70,19 +70,19 @@ export function QuickActions() {
               <button
                 key={action.label}
                 onClick={action.onClick}
-                className="group flex flex-col items-center p-3 rounded-xl bg-white border border-[#E8E8E8] hover:border-[#D0D0D0] hover:bg-[#FAFAFA] transition-all duration-200 text-center"
+                className="group flex flex-col items-center p-3 rounded-xl bg-white border border-[#E8E8E8] hover:border-[#FF016B]/30 hover:bg-[#FF016B]/5 transition-all duration-200 text-center"
               >
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-lg bg-[#F5F5F5] group-hover:bg-[#EBEBEB] flex items-center justify-center transition-colors">
-                    <Icon className="w-5 h-5 text-[#6B6B6B] group-hover:text-[#0A0A0A] transition-colors" />
+                  <div className="w-10 h-10 rounded-lg bg-[#F5F5F5] group-hover:bg-[#FF016B]/10 flex items-center justify-center transition-colors">
+                    <Icon className="w-5 h-5 text-[#6B6B6B] group-hover:text-[#FF016B] transition-colors" />
                   </div>
                   {action.badge && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#e02020] text-white text-[10px] font-semibold rounded-full flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#FF016B] text-white text-[10px] font-semibold rounded-full flex items-center justify-center shadow-sm shadow-[#FF016B]/30">
                       {action.badge}
                     </span>
                   )}
                 </div>
-                <span className="text-xs font-medium text-[#0A0A0A] mt-2">{action.label}</span>
+                <span className="text-xs font-medium text-[#0A0A0A] group-hover:text-[#FF016B] mt-2 transition-colors">{action.label}</span>
               </button>
             )
           })}

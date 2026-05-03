@@ -116,7 +116,7 @@ export function WalletManager() {
               value={newWalletName}
               onChange={(e) => setNewWalletName(e.target.value)}
               placeholder="ex: minha-carteira"
-              className="w-full px-3 py-2 border border-[#E0E0E0] rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#FF5533]"
+              className="w-full px-3 py-2 border border-[#E0E0E0] bg-white rounded-md text-sm text-[#0A0A0A] placeholder:text-[#9B9B9B] focus:outline-none focus:ring-2 focus:ring-[#FF5533]/30 focus:border-[#FF5533]/50"
             />
             <div className="flex gap-2">
               <Button

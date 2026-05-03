@@ -31,9 +31,13 @@
     --primary: 11 100% 60%;
     --primary-foreground: 0 0% 100%;
     
-    /* Secondary: #0A0A0A - preto quase puro */
-    --secondary: 0 0% 4%;
-    --secondary-foreground: 0 0% 98%;
+    /* Secondary: #FF016B - neon pink/magenta */
+    --secondary: 340 100% 50%;
+    --secondary-foreground: 0 0% 100%;
+    
+    /* Neon accent for glow effects */
+    --neon: #FF016B;
+    --neon-glow: rgba(255, 1, 107, 0.4);
     
     --muted: 0 0% 96%;
     --muted-foreground: 0 0% 42%;
@@ -169,4 +173,36 @@
 
 .graph-link:hover {
   stroke-opacity: 1;
+}
+
+/* Neon glow effects */
+.neon-glow {
+  box-shadow: 0 0 20px var(--neon-glow), 0 0 40px rgba(255, 1, 107, 0.2), 0 0 60px rgba(255, 1, 107, 0.1);
+}
+
+.neon-text {
+  text-shadow: 0 0 10px var(--neon-glow), 0 0 20px rgba(255, 1, 107, 0.3);
+}
+
+.neon-border {
+  border-color: var(--neon);
+  box-shadow: 0 0 10px var(--neon-glow), inset 0 0 10px rgba(255, 1, 107, 0.1);
+}
+
+/* Background blur orbs */
+.bg-blur-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-blur-orb-pink {
+  background: radial-gradient(circle, var(--neon) 0%, transparent 70%);
+}
+
+.bg-blur-orb-orange {
+  background: radial-gradient(circle, #FF5533 0%, transparent 70%);
 }

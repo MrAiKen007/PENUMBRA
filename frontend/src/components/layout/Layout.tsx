@@ -13,7 +13,12 @@ export function Layout({ children }: LayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   return (
-    <div className="flex min-h-screen bg-[#F8F8F8]">
+    <div className="flex min-h-screen bg-[#F8F8F8] relative overflow-hidden">
+      {/* Neon blur background orbs */}
+      <div className="bg-blur-orb bg-blur-orb-pink w-[500px] h-[500px] -top-[200px] -right-[100px]" />
+      <div className="bg-blur-orb bg-blur-orb-orange w-[400px] h-[400px] top-[40%] -left-[150px]" />
+      <div className="bg-blur-orb bg-blur-orb-pink w-[300px] h-[300px] bottom-[10%] right-[20%] opacity-10" />
+
       {/* Desktop Sidebar - Fixed */}
       <div className="hidden lg:block fixed left-0 top-0 h-screen z-30">
         <Sidebar />

@@ -31,7 +31,7 @@ export function Sidebar({ onClose }: SidebarProps) {
       <div className="p-5 border-b border-[#E8E8E8]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#FF5533]/10 flex items-center justify-center">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#FF5533]/20 to-[#FF016B]/20 flex items-center justify-center shadow-sm shadow-[#FF016B]/20">
               <Shield className="w-5 h-5 text-[#FF5533]" />
             </div>
             <div>
@@ -63,7 +63,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               cn(
                 'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
                 isActive
-                  ? 'bg-[#FF5533]/10 text-[#FF5533] font-semibold shadow-sm'
+                  ? 'bg-gradient-to-r from-[#FF5533]/10 to-[#FF016B]/10 text-[#FF5533] font-semibold shadow-sm border border-[#FF5533]/20'
                   : 'text-[#6B6B6B] hover:bg-[#F5F5F5] hover:text-[#0A0A0A]'
               )
             }

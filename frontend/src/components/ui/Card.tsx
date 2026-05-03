@@ -23,6 +23,7 @@ export function Card({ children, className, title, subtitle, action, accent = 'n
   const accentStyles: Record<CardAccent, string> = {
     none: '',
     primary: 'border-t-[3px] border-t-[#FF5533]',
+    secondary: 'border-t-[3px] border-t-[#FF016B]',
     black: 'border-t-[3px] border-t-[#0A0A0A]',
     safe: 'border-t-[3px] border-t-[#16a34a]',
     warning: 'border-t-[3px] border-t-[#d97706]',

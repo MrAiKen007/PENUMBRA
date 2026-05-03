@@ -26,8 +26,8 @@ export function Button({
   const variants = {
     // Primary: #FF5533 - for main actions only
     default: 'bg-[#FF5533] text-white hover:bg-[#E6421F] active:bg-[#CC3A19]',
-    // Secondary: #0A0A0A - for secondary actions
-    secondary: 'bg-[#0A0A0A] text-white hover:bg-[#2A2A2A] active:bg-[#1A1A1A]',
+    // Secondary: #FF016B - neon pink for secondary actions
+    secondary: 'bg-[#FF016B] text-white hover:bg-[#E0005F] active:bg-[#C90055] shadow-lg shadow-[#FF016B]/25',
     // Outline: transparent with border
     outline: 'border border-[#E0E0E0] bg-transparent text-[#0A0A0A] hover:bg-[#F5F5F5]',
     // Ghost: minimal, for subtle actions
