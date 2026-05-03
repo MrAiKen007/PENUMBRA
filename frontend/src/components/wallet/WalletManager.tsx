@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { useStore } from '@/store/useStore'
 import { walletApi } from '@/lib/api'
-import { Wallet, Plus, Copy, AlertCircle } from 'lucide-react'
+import { Wallet, Plus, Copy, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 export function WalletManager() {
   const { currentWallet, wallets, setCurrentWallet, setWallets, setWalletBalance } = useStore()
@@ -13,6 +13,7 @@ export function WalletManager() {
   const [newWalletName, setNewWalletName] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newAddress, setNewAddress] = useState<string | null>(null)
+  const [loadedWallets, setLoadedWallets] = useState<string[]>([])
 
   const loadWallets = async () => {
     setIsLoading(true)
@@ -20,6 +21,7 @@ export function WalletManager() {
     try {
       const data = await walletApi.list()
       setWallets(data.wallets)
+      setLoadedWallets(data.loaded || [])
       setCurrentWallet(data.current)
       if (data.current) {
         const balanceData = await walletApi.getBalance()
@@ -57,11 +59,21 @@ export function WalletManager() {
     setIsLoading(true)
     setError(null)
     try {
-      await walletApi.load(name)
+      // Always call load API - backend handles "already loaded" case
+      const result = await walletApi.load(name)
+      console.log('Load wallet result:', result)
+      
+      // Add to loaded wallets if not already there
+      if (!loadedWallets.includes(name)) {
+        setLoadedWallets([...loadedWallets, name])
+      }
+      
+      // Set as current and fetch balance
       setCurrentWallet(name)
       const balanceData = await walletApi.getBalance()
       setWalletBalance(balanceData.balance)
     } catch (err: any) {
+      console.error('Load wallet error:', err)
       setError(err.response?.data?.detail || 'Erro ao carregar carteira')
     } finally {
       setIsLoading(false)
@@ -150,38 +162,81 @@ export function WalletManager() {
         )}
 
         {wallets.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium text-[#6B6B6B]">Carteiras Disponíveis</h4>
-            {wallets.map((wallet) => (
-              <div
-                key={wallet.name}
-                className={`flex items-center justify-between p-3 rounded-lg border ${
-                  currentWallet === wallet.name
-                    ? 'bg-[#16a34a]/5 border-[#16a34a]/30'
-                    : 'bg-white border-[#E0E0E0]'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Wallet className="w-4 h-4 text-[#6B6B6B]" />
-                  <span className="text-sm font-medium text-[#0A0A0A]">
-                    {wallet.name}
-                  </span>
-                  {currentWallet === wallet.name && (
-                    <Badge variant="safe">Activa</Badge>
-                  )}
-                </div>
-                {currentWallet !== wallet.name && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleLoadWallet(wallet.name)}
-                    disabled={isLoading}
-                  >
-                    Carregar
-                  </Button>
-                )}
+          <div className="space-y-4">
+            {/* Loaded wallets section */}
+            {loadedWallets.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-[#16a34a] flex items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Carteiras Carregadas
+                </h4>
+                {wallets
+                  .filter((w) => loadedWallets.includes(w.name))
+                  .map((wallet) => (
+                    <div
+                      key={wallet.name}
+                      className={`flex items-center justify-between p-3 rounded-lg border ${
+                        currentWallet === wallet.name
+                          ? 'bg-[#16a34a]/5 border-[#16a34a]/30'
+                          : 'bg-white border-[#16a34a]/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-[#16a34a]" />
+                        <span className="text-sm font-medium text-[#0A0A0A]">
+                          {wallet.name}
+                        </span>
+                        {currentWallet === wallet.name ? (
+                          <Badge variant="safe">Activa</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[#16a34a] border-[#16a34a]/30">Carregada</Badge>
+                        )}
+                      </div>
+                      {currentWallet !== wallet.name && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleLoadWallet(wallet.name)}
+                          disabled={isLoading}
+                          className="border-[#16a34a]/30 text-[#16a34a] hover:bg-[#16a34a]/10"
+                        >
+                          Selecionar
+                        </Button>
+                      )}
+                    </div>
+                  ))}
               </div>
-            ))}
+            )}
+
+            {/* Not loaded wallets section */}
+            {wallets.filter((w) => !loadedWallets.includes(w.name)).length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-[#6B6B6B]">Carteiras para Carregar</h4>
+                {wallets
+                  .filter((w) => !loadedWallets.includes(w.name))
+                  .map((wallet) => (
+                    <div
+                      key={wallet.name}
+                      className="flex items-center justify-between p-3 rounded-lg border bg-white border-[#E0E0E0]"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-[#6B6B6B]" />
+                        <span className="text-sm font-medium text-[#0A0A0A]">
+                          {wallet.name}
+                        </span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleLoadWallet(wallet.name)}
+                        disabled={isLoading}
+                      >
+                        Carregar
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 

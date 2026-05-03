@@ -4,30 +4,37 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
-import { graphApi } from '@/lib/api'
+import { graphApi, walletApi } from '@/lib/api'
 import { useStore } from '@/store/useStore'
 import {
   getRiskColor,
   truncateAddress,
   formatBTC,
+  truncateTxid,
 } from '@/lib/utils'
 import type { GraphNode, GraphEdge } from '@/types'
-import { Search } from 'lucide-react'
+import { Search, Wallet, History, ChevronDown, ChevronUp } from 'lucide-react'
 
 export function GraphVisualization() {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const { currentGraph, setCurrentGraph } = useStore()
+  const { currentGraph, setCurrentGraph, currentWallet } = useStore()
   const [address, setAddress] = useState('')
   const [depth, setDepth] = useState(2)
   const [isLoading, setIsLoading] = useState(false)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+  const [walletAddresses, setWalletAddresses] = useState<Array<{ address: string; label: string; txids: string[]; amount: number }>>([])
+  const [selectedWalletAddress, setSelectedWalletAddress] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+  const [isLoadingAddresses, setIsLoadingAddresses] = useState(false)
+  const [addressesError, setAddressesError] = useState<string | null>(null)
 
-  const loadGraph = async () => {
-    if (!address) return
+  const loadGraph = async (addr?: string) => {
+    const targetAddress = addr || address
+    if (!targetAddress) return
     setIsLoading(true)
     try {
-      const data = await graphApi.getGraph(address, depth)
+      const data = await graphApi.getGraph(targetAddress, depth)
       setCurrentGraph(data)
     } catch (err) {
       console.error('Failed to load graph:', err)
@@ -35,6 +42,44 @@ export function GraphVisualization() {
       setIsLoading(false)
     }
   }
+
+  const loadWalletAddresses = async () => {
+    console.log('loadWalletAddresses called, currentWallet:', currentWallet)
+    if (!currentWallet) {
+      setAddressesError('Nenhuma carteira conectada. Carregue uma carteira primeiro.')
+      return
+    }
+    setIsLoadingAddresses(true)
+    setAddressesError(null)
+    try {
+      console.log('Calling walletApi.getAddresses()...')
+      const data = await walletApi.getAddresses()
+      console.log('Received addresses:', data)
+      setWalletAddresses(data.addresses)
+      if (data.addresses.length > 0 && !address) {
+        const firstAddress = data.addresses[0].address
+        setSelectedWalletAddress(firstAddress)
+        setAddress(firstAddress)
+        loadGraph(firstAddress)
+      }
+    } catch (err: any) {
+      console.error('Failed to load wallet addresses:', err)
+      console.error('Error response:', err.response)
+      setAddressesError(err.response?.data?.detail || err.message || 'Erro ao carregar endereços')
+    } finally {
+      setIsLoadingAddresses(false)
+    }
+  }
+
+  useEffect(() => {
+    loadWalletAddresses()
+  }, [])
+
+  useEffect(() => {
+    if (currentWallet) {
+      loadWalletAddresses()
+    }
+  }, [currentWallet])
 
   useEffect(() => {
     if (!currentGraph || !svgRef.current || !containerRef.current) return
@@ -184,6 +229,79 @@ export function GraphVisualization() {
       className="h-full"
     >
       <div className="space-y-4">
+        {isLoadingAddresses && (
+          <div className="p-3 bg-[#F5F5F5] rounded-xl border border-[#E8E8E8]">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-[#FF5533] border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-[#6B6B6B]">A carregar endereços...</span>
+            </div>
+          </div>
+        )}
+
+        {addressesError && !isLoadingAddresses && (
+          <div className="p-3 bg-[#FEF2F2] rounded-xl border border-[#e02020]/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-[#e02020]" />
+                <span className="text-sm text-[#e02020]">{addressesError}</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={loadWalletAddresses}>
+                Tentar novamente
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {currentWallet && walletAddresses.length > 0 && !isLoadingAddresses && (
+          <div className="p-3 bg-gradient-to-r from-[#FF5533]/10 to-[#FF016B]/10 rounded-xl border border-[#FF5533]/20">
+            <div className="flex items-center gap-2 mb-2">
+              <Wallet className="w-4 h-4 text-[#FF5533]" />
+              <span className="text-sm font-medium text-[#0A0A0A]">Carteira: {currentWallet}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedWalletAddress || ''}
+                onChange={(e) => {
+                  const addr = e.target.value
+                  setSelectedWalletAddress(addr)
+                  setAddress(addr)
+                  loadGraph(addr)
+                }}
+                className="flex-1 text-sm bg-white border border-[#E0E0E0] rounded-lg px-3 py-2 text-[#0A0A0A] focus:border-[#FF5533]/50 focus:ring-2 focus:ring-[#FF5533]/20 outline-none"
+              >
+                <option value="">Selecionar endereço...</option>
+                {walletAddresses.map((addr) => (
+                  <option key={addr.address} value={addr.address}>
+                    {truncateAddress(addr.address, 8, 8)} {addr.label ? `(${addr.label})` : ''} - {formatBTC(addr.amount)} BTC
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedWalletAddress && (
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="flex items-center gap-1 mt-2 text-xs text-[#FF5533] hover:text-[#FF016B] font-medium transition-colors"
+              >
+                <History className="w-3.5 h-3.5" />
+                {showHistory ? 'Ocultar histórico' : 'Ver histórico'}
+                {showHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            {showHistory && selectedWalletAddress && (
+              <div className="mt-3 pt-3 border-t border-[#FF5533]/20">
+                <p className="text-xs font-medium text-[#6B6B6B] mb-2">Transações:</p>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {walletAddresses.find(a => a.address === selectedWalletAddress)?.txids.map((txid, idx) => (
+                    <div key={txid} className="text-xs font-mono text-[#0A0A0A] bg-white/60 px-2 py-1 rounded">
+                      {idx + 1}. {truncateTxid(txid)}
+                    </div>
+                  )) || <span className="text-xs text-[#9B9B9B]">Sem transações</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <Input
@@ -203,7 +321,7 @@ export function GraphVisualization() {
               onChange={(e) => setDepth(parseInt(e.target.value))}
             />
           </div>
-          <Button onClick={loadGraph} isLoading={isLoading} className="h-9">
+          <Button onClick={() => loadGraph()} isLoading={isLoading} className="h-9">
             <Search className="w-4 h-4 mr-2" />
             Analisar
           </Button>

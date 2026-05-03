@@ -119,6 +119,11 @@ export const walletApi = {
     const { data } = await api.get('/wallet/address/change', { params: { address_type: addressType } })
     return data
   },
+
+  getAddresses: async (): Promise<{ addresses: Array<{ address: string; label: string; txids: string[]; amount: number }> }> => {
+    const { data } = await api.get('/wallet/addresses')
+    return data
+  },
 }
 
 export default api

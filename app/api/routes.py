@@ -32,10 +32,14 @@ async def score_utxos(utxo_ids: list[str]):
 @router.post("/psbt/build")
 async def create_psbt(request: CoinControlRequest):
     """Constroi PSBT com UTXOs selecionados."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"PSBT build request: wallet={request.wallet_address}, utxos={len(request.selected_utxo_ids)}, dest={request.destination_address[:20]}..., amount={request.amount_sats}, fee={request.fee_rate}")
     try:
         result = await build_transaction(request)
         return result.model_dump()
     except Exception as e:
+        logger.error(f"PSBT build error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -51,6 +55,35 @@ async def get_graph(address: str, depth: int = 2, max_nodes: int = 100):
     """Constroi grafo de rastreabilidade para endereço."""
     graph = await build_traceability_graph(address, depth, max_nodes)
     return graph.model_dump()
+
+
+@router.get("/wallet/addresses")
+async def get_wallet_addresses():
+    """Retorna endereços únicos da carteira conectada."""
+    from app.services.wallet_service import list_received_by_address, WalletManager
+    try:
+        current_wallet = WalletManager.get_current_wallet()
+        if not current_wallet:
+            return {"addresses": []}
+        addresses = list_received_by_address(min_conf=0, include_empty=True)
+        unique_addresses = []
+        seen = set()
+        for addr_data in addresses:
+            addr = addr_data.get("address")
+            if addr and addr not in seen:
+                seen.add(addr)
+                unique_addresses.append({
+                    "address": addr,
+                    "label": addr_data.get("label", ""),
+                    "txids": addr_data.get("txids", []),
+                    "amount": addr_data.get("amount", 0)
+                })
+        return {"addresses": unique_addresses}
+    except Exception as e:
+        import traceback
+        print(f"Error getting wallet addresses: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/alerts")

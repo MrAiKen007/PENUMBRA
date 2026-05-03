@@ -7,13 +7,13 @@ import { useEffect, useState } from 'react'
 import { RefreshCw, Bell, AlertCircle, WifiOff } from 'lucide-react'
 
 export function RecentAlerts() {
-  const { alerts, setAlerts, acknowledgeAlert } = useStore()
+  const { alerts, setAlerts, acknowledgeAlert, currentWallet } = useStore()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     loadAlerts()
-  }, [])
+  }, [currentWallet])
 
   const loadAlerts = async () => {
     setIsLoading(true)

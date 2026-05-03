@@ -123,7 +123,67 @@ async def _fetch_tx_via_api(txid: str) -> dict:
     return await _mempool_get(f"/tx/{txid}")
 
 
+async def _fetch_address_via_core(address: str) -> list[dict]:
+    
+    transactions = []
+    
+    try:
+        
+        from app.services.wallet_service import WalletManager
+        current_wallet = WalletManager.get_current_wallet()
+        
+        if current_wallet:
+          
+            try:
+                received = await async_rpc_cliente(
+                    "listreceivedbyaddress", 
+                    [0, True, True], 
+                    wallet=current_wallet
+                )
+            
+                addr_info = next((r for r in received if r.get("address") == address), None)
+                if addr_info:
+                    
+                    for txid in addr_info.get("txids", []):
+                        try:
+                            tx_detail = await fetch_transaction(txid)
+                            transactions.append(tx_detail)
+                        except Exception:
+                            pass
+                    return transactions
+            except Exception:
+                pass
+            
+           
+            try:
+                since = await async_rpc_cliente("listsinceblock", ["0000000000000000000000000000000000000000000000000000000000000000"], wallet=current_wallet)
+                for tx in since.get("transactions", []):
+                    if tx.get("address") == address or address in str(tx.get("address", "")):
+                        try:
+                            tx_detail = await fetch_transaction(tx["txid"])
+                            if tx_detail not in transactions:
+                                transactions.append(tx_detail)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug(f"Could not fetch from Bitcoin Core: {e}")
+    
+    return transactions
+
+
 async def fetch_address_transactions(address: str) -> list[dict]:
+    # Try Bitcoin Core first
+    if settings.USE_BITCOIN_CORE:
+        try:
+            core_txs = await _fetch_address_via_core(address)
+            if core_txs:
+                return core_txs
+        except Exception as e:
+            logger.debug(f"Bitcoin Core fetch failed: {e}")
+    
+    # Fallback to mempool API
     try:
         return await _mempool_get(f"/address/{address}/txs")
     except Exception as e:

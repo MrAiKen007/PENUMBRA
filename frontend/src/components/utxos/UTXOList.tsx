@@ -23,14 +23,14 @@ const labelStyles: Record<string, { bg: string; text: string; border: string }> 
 }
 
 export function UTXOList({ selectable, onSelectionChange }: UTXOListProps) {
-  const { utxos, setUtxos, selectedUtxos, setSelectedUtxos } = useStore()
+  const { utxos, setUtxos, selectedUtxos, setSelectedUtxos, currentWallet } = useStore()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<UTXOLabel | 'all'>('all')
 
   useEffect(() => {
     loadUTXOs()
-  }, [])
+  }, [currentWallet])
 
   useEffect(() => {
     onSelectionChange?.(selectedUtxos)

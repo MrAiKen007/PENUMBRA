@@ -67,12 +67,20 @@ async def api_list_wallets():
 
 @router.post("/load")
 async def api_load_wallet(request: LoadWalletRequest):
-
     try:
         result = load_wallet(request.name)
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_msg = str(e)
+        # If wallet is already loaded, just set it as current
+        if "already loaded" in error_msg.lower():
+            WalletManager.set_current_wallet(request.name)
+            return {
+                "name": request.name,
+                "warning": "Wallet was already loaded, set as current",
+                "loaded": True
+            }
+        raise HTTPException(status_code=400, detail=error_msg)
 
 
 @router.post("/unload")
@@ -87,9 +95,13 @@ async def api_unload_wallet(wallet_name: Optional[str] = None):
 
 @router.get("/info")
 async def api_wallet_info():
-
+    current = WalletManager.get_current_wallet()
+    if not current:
+        return {"wallet": None, "loaded": False}
     try:
         info = get_wallet_info()
+        info["wallet"] = current
+        info["loaded"] = True
         return info
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -97,10 +109,12 @@ async def api_wallet_info():
 
 @router.get("/balance")
 async def api_wallet_balance(min_conf: int = 1):
-
+    current = WalletManager.get_current_wallet()
+    if not current:
+        return {"balance": 0, "currency": "BTC", "wallet": None}
     try:
         balance = get_balance(min_conf)
-        return {"balance": balance, "currency": "BTC"}
+        return {"balance": balance, "currency": "BTC", "wallet": current}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

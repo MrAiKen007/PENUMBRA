@@ -109,8 +109,8 @@ def get_raw_change_address(address_type: str = "bech32m") -> str:
 
 
 def get_wallet_info() -> Dict[str, Any]:
-
-    return rpc_cliente("getwalletinfo", [])
+    current_wallet = WalletManager.get_current_wallet()
+    return rpc_cliente("getwalletinfo", [], wallet=current_wallet)
 
 
 def set_wallet_label(address: str, label: str) -> bool:
@@ -130,13 +130,13 @@ def get_addresses_by_label(label: Optional[str] = None) -> Dict[str, Any]:
 
 def list_received_by_address(min_conf: int = 1, include_empty: bool = True,
                              include_watch_only: bool = False) -> List[Dict[str, Any]]:
-
-    return rpc_cliente("listreceivedbyaddress", [min_conf, include_empty, include_watch_only])
+    current_wallet = WalletManager.get_current_wallet()
+    return rpc_cliente("listreceivedbyaddress", [min_conf, include_empty, include_watch_only], wallet=current_wallet)
 
 
 def get_balance(min_conf: int = 1) -> float:
-
-    return rpc_cliente("getbalance", ["*", min_conf])
+    current_wallet = WalletManager.get_current_wallet()
+    return rpc_cliente("getbalance", ["*", min_conf], wallet=current_wallet)
 
 
 async def async_create_wallet(wallet_name: str, passphrase: Optional[str] = None,
