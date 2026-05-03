@@ -1,10 +1,13 @@
 from typing import Optional, List
 from app.core.bitcoin_rpc import rpc_cliente
 from app.models.privacy import UTXO, UTXOLabel, ScoreBreakdown, PrivacyAlert, PrivacyReport
+from app.services.wallet_service import WalletManager
 
-def get_wallet_utxos() -> List[UTXO]:
+def get_wallet_utxos(wallet_name: Optional[str] = None) -> List[UTXO]:
     try:
-        unspents = rpc_cliente("listunspent", [0, 9999999])
+
+        target_wallet = wallet_name or WalletManager.get_current_wallet()
+        unspents = rpc_cliente("listunspent", [0, 9999999], wallet=target_wallet)
         utxos = []
         for u in unspents:
             value_sats = int(u["amount"] * 100_000_000)

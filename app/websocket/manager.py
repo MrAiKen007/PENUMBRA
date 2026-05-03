@@ -11,7 +11,7 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        await websocket.accept()
+        """Adiciona websocket à lista de conexões ativas (já deve estar aceite)."""
         self.active_connections.append(websocket)
         logger.info(f"WebSocket conectado. Total: {len(self.active_connections)}")
 

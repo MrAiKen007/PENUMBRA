@@ -1,17 +1,23 @@
 import asyncio
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api.routes import router
+from app.api.wallet_routes import router as wallet_router
 from app.websocket.alerts import start_alert_monitoring
 from app.websocket.zmq_listener import start_zmq_listener
+from app.db import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await init_db()
 
     asyncio.create_task(start_alert_monitoring(interval_seconds=60))
     asyncio.create_task(start_zmq_listener())
@@ -33,6 +39,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+app.include_router(wallet_router, prefix="/api")
 
 
 @app.get("/")

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
 
-    CORS_ORIGINS: list[str] = [os.getenv("CORS_ORIGINS")]
+    CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 
     HTTP_TIMEOUT: float = 15.0
 
@@ -15,12 +15,12 @@ class Settings(BaseSettings):
     CACHE_TTL_TRANSACTIONS: int = 300
     CACHE_TTL_FEES: int = 60
 
-    BITCOIN_RPC_USER: str = os.getenv("BITCOIN_RPC_USER")
-    BITCOIN_RPC_PASSWORD: str = os.getenv("BITCOIN_RPC_PASSWORD")
-    BITCOIN_RPC_PORT: int = int(os.getenv("BITCOIN_RPC_PORT"))
-    BITCOIN_RPC_HOST: str = os.getenv("BITCOIN_RPC_HOST")
-    BITCOIN_ZMQ_HOST: str = os.getenv("BITCOIN_ZMQ_HOST")
-    BITCOIN_ZMQ_PORT: int = int(os.getenv("BITCOIN_ZMQ_PORT"))
+    BITCOIN_RPC_USER: str = os.getenv("BITCOIN_RPC_USER", "")
+    BITCOIN_RPC_PASSWORD: str = os.getenv("BITCOIN_RPC_PASSWORD", "")
+    BITCOIN_RPC_PORT: int = int(os.getenv("BITCOIN_RPC_PORT", "15443"))
+    BITCOIN_RPC_HOST: str = os.getenv("BITCOIN_RPC_HOST", "localhost")
+    BITCOIN_ZMQ_HOST: str = os.getenv("BITCOIN_ZMQ_HOST", "localhost")
+    BITCOIN_ZMQ_PORT: int = int(os.getenv("BITCOIN_ZMQ_PORT", "28332"))
 
     @property
     def BITCOIN_RPC_URL(self) -> str:

@@ -78,10 +78,11 @@ async def analyze_tx(txid: str):
 @router.websocket("/ws/alerts")
 async def websocket_alerts(websocket: WebSocket):
     """WebSocket para alertas em tempo real."""
+    await websocket.accept()
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
             await websocket.send_text(f"Echo: {data}")
     except:
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)

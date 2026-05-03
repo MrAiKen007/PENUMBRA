@@ -1,0 +1,172 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Typography Scale - 1.25 ratio */
+    --text-xs: 0.75rem;
+    --text-sm: 0.875rem;
+    --text-base: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.5rem;
+    --text-3xl: 1.875rem;
+    --text-4xl: 2.25rem;
+
+    /* Font families */
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    /* PENUMBRA Design System - Light Theme */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 4%;
+    
+    /* Primary: #FF5533 - laranja com tom avermelhado/rosa */
+    --primary: 11 100% 60%;
+    --primary-foreground: 0 0% 100%;
+    
+    /* Secondary: #0A0A0A - preto quase puro */
+    --secondary: 0 0% 4%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 4%;
+    
+    /* Destructive matches danger color */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 0 0% 88%;
+    --input: 0 0% 97%;
+    --ring: 11 100% 60%;
+    --radius: 0.5rem;
+    
+    /* Semantic Colors - PENUMBRA */
+    --safe: 142 71% 45%;
+    --warning: 38 92% 45%;
+    --danger: 0 84% 50%;
+    --info: 217 91% 55%;
+    
+    /* Light variants for backgrounds */
+    --safe-light: 142 71% 95%;
+    --warning-light: 38 92% 95%;
+    --danger-light: 0 84% 95%;
+    --info-light: 217 91% 95%;
+    
+    /* Graph Colors */
+    --graph-safe: 142 71% 45%;
+    --graph-warning: 38 92% 45%;
+    --graph-danger: 0 84% 50%;
+    --graph-critical: 0 72% 51%;
+    --graph-info: 217 91% 55%;
+    --graph-unknown: 0 0% 42%;
+    --graph-link: 0 0% 82%;
+    --graph-link-cioh: 11 100% 60%;
+    --graph-text: 0 0% 4%;
+    --graph-stroke: 0 0% 88%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    /* Graph semantic colors */
+    --graph-safe: 142 71% 45%;
+    --graph-warning: 38 92% 50%;
+    --graph-danger: 0 84% 60%;
+    --graph-critical: 0 72% 51%;
+    --graph-info: 217 91% 60%;
+    --graph-unknown: 220 9% 46%;
+    --graph-link: 220 9% 46%;
+    --graph-link-cioh: 0 84% 60%;
+    --graph-text: 220 13% 91%;
+    --graph-stroke: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+  }
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground));
+}
+
+/* Graph styles */
+.graph-node {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.graph-node:hover {
+  filter: brightness(1.2);
+}
+
+.graph-link {
+  stroke-opacity: 0.6;
+  transition: stroke-opacity 0.2s ease;
+}
+
+.graph-link:hover {
+  stroke-opacity: 1;
+}
