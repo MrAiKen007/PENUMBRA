@@ -52,7 +52,10 @@ export function Layout({ children }: LayoutProps) {
           >
             <Menu className="w-5 h-5" />
           </Button>
-          <h1 className="font-bold text-lg text-[#0A0A0A]">PENUMBRA</h1>
+          <div className="flex items-center">
+            <img src="/Penumbra.svg" alt="Penumbra" className="h-9 w-auto flex-shrink-0" />
+            <span className="font-bold text-base text-[#FF5533] -ml-2">PENUMBRA</span>
+          </div>
         </div>
 
         <div className="container mx-auto p-4 lg:p-6 max-w-7xl bg-white min-h-[calc(100vh-2rem)] rounded-2xl shadow-sm border border-[#E8E8E8]">

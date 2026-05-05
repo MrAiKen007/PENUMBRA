@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 
     HTTP_TIMEOUT: float = 15.0
+    MEMPOOL_API_URL: str = "https://mempool.space/api"
 
     CACHE_TTL_UTXOS: int = 30
     CACHE_TTL_TRANSACTIONS: int = 300

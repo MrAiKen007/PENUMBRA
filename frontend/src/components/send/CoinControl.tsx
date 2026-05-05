@@ -47,22 +47,33 @@ export function CoinControl() {
   const buildTransaction = async () => {
     if (!destination || !amount || selectedUtxos.length === 0) return
 
+    const walletAddress = utxos[0]?.address
+    if (!walletAddress) {
+      console.error('[PSBT] No wallet address available - utxos list is empty')
+      alert('Erro: Nenhum UTXO disponível. Carregue uma carteira primeiro.')
+      return
+    }
+
+    const request: CoinControlRequest = {
+      wallet_address: walletAddress,
+      selected_utxo_ids: selectedUtxos,
+      destination_address: destination,
+      amount_sats: amountSats,
+      change_address: changeAddress || destination,
+      fee_rate: feeRate,
+    }
+
+    console.log('[PSBT] Request payload:', JSON.stringify(request, null, 2))
+
     setIsLoading(true)
     try {
-      const request: CoinControlRequest = {
-        wallet_address: utxos[0]?.address || '',
-        selected_utxo_ids: selectedUtxos,
-        destination_address: destination,
-        amount_sats: amountSats,
-        change_address: changeAddress || destination,
-        fee_rate: feeRate,
-      }
-
       const result = await coinControlApi.buildPSBT(request)
       setLastPsbt(result)
       setPrivacyScore(result.privacy_score)
-    } catch (err) {
-      console.error('Failed to build transaction:', err)
+    } catch (err: any) {
+      console.error('[PSBT] Failed to build transaction:', err)
+      const errorDetail = err.response?.data?.detail || err.message
+      alert(`Erro ao construir transação: ${errorDetail}`)
     } finally {
       setIsLoading(false)
     }

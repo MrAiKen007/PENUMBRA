@@ -1,12 +1,12 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class CoinControlRequest(BaseModel):
 
-    wallet_address: str
-    selected_utxo_ids: list[str]
-    destination_address: str
-    amount_sats: int
-    change_address: str
+    wallet_address: str = Field(..., min_length=1)
+    selected_utxo_ids: list[str] = Field(..., min_length=1)
+    destination_address: str = Field(..., min_length=1)
+    amount_sats: int = Field(..., gt=0)
+    change_address: str = Field(..., min_length=1)
     fee_rate: str | int = "medium"
 
 

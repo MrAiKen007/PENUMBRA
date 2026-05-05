@@ -8,7 +8,6 @@ import {
   GitGraph,
   Bell,
   Settings,
-  Shield,
   X,
 } from 'lucide-react'
 
@@ -28,28 +27,21 @@ interface SidebarProps {
 export function Sidebar({ onClose }: SidebarProps) {
   return (
     <aside className="w-60 m-4 h-[calc(100vh-2rem)] bg-white rounded-2xl shadow-xl shadow-black/8 border border-[#E8E8E8] flex flex-col overflow-hidden">
-      <div className="p-5 border-b border-[#E8E8E8]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#FF5533]/20 to-[#FF016B]/20 flex items-center justify-center shadow-sm shadow-[#FF016B]/20">
-              <Shield className="w-5 h-5 text-[#FF5533]" />
-            </div>
-            <div>
-              <h1 className="font-bold text-lg text-[#0A0A0A] tracking-tight">PENUMBRA</h1>
-              <p className="text-xs text-[#6B6B6B] font-medium">Privacy Wallet</p>
-            </div>
-          </div>
-          {onClose && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              className="lg:hidden"
-              aria-label="Close menu"
-            >
-              <X className="w-5 h-5" />
-            </Button>
-          )}
+      <div className="p-5 border-b border-[#E8E8E8] relative">
+        {onClose && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="lg:hidden absolute top-3 right-3 z-10"
+            aria-label="Close menu"
+          >
+            <X className="w-5 h-5" />
+          </Button>
+        )}
+        <div className="flex items-center min-w-0">
+          <img src="/Penumbra.svg" alt="Penumbra" className="h-12 w-auto flex-shrink-0" />
+          <span className="font-bold text-lg text-[#FF5533] whitespace-nowrap -ml-2">PENUMBRA</span>
         </div>
       </div>
 

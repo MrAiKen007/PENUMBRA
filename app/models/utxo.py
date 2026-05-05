@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 
 class UTXOLabel(str, Enum):
@@ -20,13 +20,14 @@ class UTXO(BaseModel):
     confirmed: bool = True
     block_height: Optional[int] = None
 
-    @property
-    def value_btc(self) -> float:
-        return self.value / 100_000_000
-
+    @computed_field
     @property
     def utxo_id(self) -> str:
         return f"{self.txid}:{self.vout}"
+
+    @property
+    def value_btc(self) -> float:
+        return self.value / 100_000_000
 
 
 class UTXOWithScore(BaseModel):

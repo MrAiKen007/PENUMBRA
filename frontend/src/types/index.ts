@@ -98,6 +98,25 @@ export enum NodeRisk {
   CRITICAL = 'critical',
 }
 
+export interface ConnectedAddressInfo {
+  address: string;
+  relationship_type: string;
+  confidence: number;
+  transactions: Array<{
+    txid: string;
+    value_sats: number;
+    timestamp?: string;
+    is_cioh: boolean;
+  }>;
+  total_value_sats: number;
+  direction: string;
+  heuristics: string[];
+  is_known_entity: boolean;
+  entity_name?: string;
+  first_seen?: string;
+  last_seen?: string;
+}
+
 export interface GraphNode {
   id: string;
   type: NodeType;
@@ -106,7 +125,21 @@ export interface GraphNode {
   value_sats: number;
   entity_name?: string;
   is_watched: boolean;
+  cluster_id?: string;
+  cluster_confidence?: number;
   metadata: Record<string, unknown>;
+  relationships?: Array<{
+    peer_address: string;
+    type: string;
+    confidence: number;
+    shared_transactions: string[];
+    total_value_sats: number;
+    direction: string;
+    heuristics: string[];
+  }>;
+  transaction_count?: number;
+  total_volume_sats?: number;
+  connected_addresses?: ConnectedAddressInfo[];
 }
 
 export interface GraphEdge {
@@ -116,6 +149,9 @@ export interface GraphEdge {
   txid: string;
   is_cioh: boolean;
   label: string;
+  confidence?: number;
+  relationship_type?: string;
+  details?: Record<string, unknown>;
 }
 
 export interface ClusterInfo {
@@ -123,6 +159,8 @@ export interface ClusterInfo {
   addresses: string[];
   confidence: number;
   reason: string;
+  entity_type?: string;
+  total_value_sats?: number;
 }
 
 export interface GraphData {
@@ -255,4 +293,142 @@ export interface NewAddressResponse {
 export interface WalletBalance {
   balance: number;
   currency: string;
+}
+
+// Forensic Analysis Types
+export enum TransactionType {
+  SIMPLE = 'simple',
+  COMPLEX = 'complex',
+  COINJOIN = 'coinjoin',
+  CONSOLIDATION = 'consolidation',
+  DISTRIBUTION = 'distribution',
+  PEELING = 'peeling',
+  UNKNOWN = 'unknown',
+}
+
+export enum PrivacyScoreLevel {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  UNKNOWN = 'unknown',
+}
+
+export enum ChangeHeuristic {
+  NEW_ADDRESS = 'new_address',
+  SCRIPT_TYPE_MATCH = 'script_match',
+  NON_ROUND_VALUE = 'non_round',
+  SMALLER_OUTPUT = 'smaller_output',
+  TWO_OUTPUTS = 'two_outputs',
+  INPUT_REUSE = 'input_reuse',
+  OPTIMAL_CHANGE = 'optimal_change',
+}
+
+export interface ChangeOutput {
+  address: string;
+  value_sats: number;
+  confidence: number;
+  heuristics: ChangeHeuristic[];
+  explanation: string;
+}
+
+export interface PaymentOutput {
+  address: string;
+  value_sats: number;
+  is_external: boolean;
+  known_entity?: string;
+}
+
+export interface InputAnalysis {
+  txid: string;
+  vout: number;
+  address: string;
+  value_sats: number;
+  script_type: string;
+  cluster_id?: string;
+}
+
+export interface OutputAnalysis {
+  address: string;
+  value_sats: number;
+  vout: number;
+  script_type: string;
+  is_change: boolean;
+  change_confidence: number;
+  is_new_address: boolean;
+  cluster_id?: string;
+}
+
+export interface CIOHAnalysis {
+  applicable: boolean;
+  input_addresses: string[];
+  cluster_id: string;
+  confidence: number;
+  warning: string;
+}
+
+export interface TransactionAnalysis {
+  txid: string;
+  tx_type: TransactionType;
+  privacy_score: PrivacyScoreLevel;
+  inputs: InputAnalysis[];
+  total_input_value: number;
+  input_addresses: string[];
+  outputs: OutputAnalysis[];
+  total_output_value: number;
+  output_addresses: string[];
+  change_output?: ChangeOutput;
+  payment_outputs: PaymentOutput[];
+  cioh: CIOHAnalysis;
+  fee_sats: number;
+  fee_rate: number;
+  block_height?: number;
+  timestamp?: string;
+  confirmed: boolean;
+  has_address_reuse: boolean;
+  is_peeling_candidate: boolean;
+  warnings: string[];
+}
+
+export interface Cluster {
+  cluster_id: string;
+  addresses: string[];
+  created_by: string[];
+  confidence: number;
+  reason: string;
+  first_seen_block?: number;
+  last_seen_block?: number;
+  total_value_sats: number;
+}
+
+export interface EntityCluster {
+  entity_name: string;
+  entity_type: string;
+  addresses: string[];
+  risk_level: string;
+  source: string;
+}
+
+export interface ForensicStats {
+  total_transactions: number;
+  total_volume_sats: number;
+  unique_counterparties: number;
+}
+
+export interface ForensicReport {
+  target_address: string;
+  transactions_analyzed: TransactionAnalysis[];
+  clusters: Cluster[];
+  entity_clusters: EntityCluster[];
+  flow_paths: unknown[];
+  total_transactions: number;
+  total_volume_sats: number;
+  unique_counterparties: number;
+  privacy_score: PrivacyScoreLevel;
+  risk_addresses: string[];
+  warnings: string[];
+}
+
+export interface ForensicGraphResponse {
+  graph: GraphData;
+  forensic: ForensicReport | null;
 }

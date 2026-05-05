@@ -5,6 +5,8 @@ import type {
   CoinControlRequest,
   CoinControlResult,
   GraphData,
+  ForensicReport,
+  ForensicGraphResponse,
   Alert,
   AlertSummary,
   WalletInfo,
@@ -51,10 +53,36 @@ export const graphApi = {
   getGraph: async (
     address: string,
     depth = 2,
-    maxNodes = 100
+    maxNodes = 100,
+    wallet?: string
   ): Promise<GraphData> => {
     const { data } = await api.get(`/graph/${address}`, {
-      params: { depth, max_nodes: maxNodes },
+      params: { depth, max_nodes: maxNodes, wallet },
+    })
+    return data
+  },
+
+  getForensicGraph: async (
+    address: string,
+    depth = 2,
+    maxNodes = 100,
+    forensic = true,
+    wallet?: string
+  ): Promise<ForensicGraphResponse> => {
+    const { data } = await api.get(`/graph/${address}/forensic`, {
+      params: { depth, max_nodes: maxNodes, forensic, wallet },
+      timeout: 60000, // 60 seconds timeout for forensic analysis
+    })
+    return data
+  },
+
+  getForensicAnalysis: async (
+    address: string,
+    maxTransactions = 50,
+    wallet?: string
+  ): Promise<ForensicReport> => {
+    const { data } = await api.get(`/forensic/analyze/${address}`, {
+      params: { max_transactions: maxTransactions, wallet },
     })
     return data
   },

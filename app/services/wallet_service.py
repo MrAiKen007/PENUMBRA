@@ -134,6 +134,12 @@ def list_received_by_address(min_conf: int = 1, include_empty: bool = True,
     return rpc_cliente("listreceivedbyaddress", [min_conf, include_empty, include_watch_only], wallet=current_wallet)
 
 
+def list_transactions(count: int = 10, skip: int = 0, include_watch_only: bool = True) -> List[Dict[str, Any]]:
+    """List wallet transactions."""
+    current_wallet = WalletManager.get_current_wallet()
+    return rpc_cliente("listtransactions", ["*", count, skip, include_watch_only], wallet=current_wallet)
+
+
 def get_balance(min_conf: int = 1) -> float:
     current_wallet = WalletManager.get_current_wallet()
     return rpc_cliente("getbalance", ["*", min_conf], wallet=current_wallet)

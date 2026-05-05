@@ -47,14 +47,57 @@ async def _mempool_get(path: str) -> dict | list:
 
 
 async def fetch_transaction(txid: str) -> dict:
-    if settings.USE_BITCOIN_CORE:
-        return await _fetch_tx_via_rpc(txid)
-    else:
+    # Prioritize mempool API if available (avoids txindex issues)
+    if not settings.USE_BITCOIN_CORE:
         return await _fetch_tx_via_api(txid)
+    
+    # Try mempool first even when Core is enabled (more reliable for historical txs)
+    try:
+        return await _fetch_tx_via_api(txid)
+    except Exception as api_err:
+        logger.debug(f"mempool API failed for {txid[:20]}..., trying Core: {api_err}")
+        # Fallback to Core for wallet transactions
+        return await _fetch_tx_via_rpc(txid)
 
 
 async def _fetch_tx_via_rpc(txid: str) -> dict:
-    raw = await async_rpc_cliente("getrawtransaction", [txid, True])
+    from app.services.wallet_service import WalletManager
+    
+    raw = None
+    wallet_name = WalletManager.get_current_wallet()
+    
+    # Try getrawtransaction first (for any tx in blockchain with txindex)
+    try:
+        raw = await async_rpc_cliente("getrawtransaction", [txid, True])
+    except Exception as e:
+        logger.debug(f"getrawtransaction failed for {txid[:20]}...: {e}")
+        # Fallback to gettransaction (for wallet transactions)
+        if wallet_name:
+            try:
+                wallet_tx = await async_rpc_cliente("gettransaction", [txid], wallet=wallet_name)
+                logger.info(f"Using gettransaction for {txid[:20]}... (wallet tx)")
+                # Convert wallet tx format to raw tx format
+                raw = {
+                    "txid": txid,
+                    "vin": [],  # Will be empty - wallet tx doesn't have full input details
+                    "vout": [],
+                    "confirmations": wallet_tx.get("confirmations", 0),
+                    "blockheight": wallet_tx.get("blockheight"),
+                    "hex": wallet_tx.get("hex", "")
+                }
+                # Try to decode the hex to get vin/vout
+                if raw["hex"]:
+                    try:
+                        decoded = await async_rpc_cliente("decoderawtransaction", [raw["hex"]])
+                        raw["vin"] = decoded.get("vin", [])
+                        raw["vout"] = decoded.get("vout", [])
+                    except Exception as decode_err:
+                        logger.warning(f"Failed to decode raw tx: {decode_err}")
+            except Exception as wallet_err:
+                logger.debug(f"gettransaction also failed: {wallet_err}")
+                raise e  # Re-raise original error
+        else:
+            raise e
 
     async def resolve_input(inp: dict) -> dict:
         if "coinbase" in inp:
@@ -79,6 +122,7 @@ async def _fetch_tx_via_rpc(txid: str) -> dict:
             pass
 
         try:
+            # Only try getrawtransaction if we know it might work (txindex or mempool)
             prev_tx = await async_rpc_cliente("getrawtransaction", [prev_txid, True])
             prev_output = prev_tx["vout"][prev_vout]
             address = prev_output.get("scriptPubKey", {}).get("address", "unknown")
@@ -90,8 +134,9 @@ async def _fetch_tx_via_rpc(txid: str) -> dict:
                     "value": value_sats,
                 }
             }
-        except Exception as e:
-            logger.warning(f"Não consegui resolver input {prev_txid}:{prev_vout} — {e}")
+        except Exception:
+            # Silently return unknown - txindex not enabled or tx not in mempool
+            # This is expected behavior without txindex
             return {
                 **inp,
                 "prevout": {"scriptpubkey_address": "unknown", "value": 0}
@@ -131,53 +176,161 @@ async def _fetch_address_via_core(address: str) -> list[dict]:
         
         from app.services.wallet_service import WalletManager
         current_wallet = WalletManager.get_current_wallet()
+        logger.info(f"[_fetch_address_via_core] Current wallet: {current_wallet}, searching for address: {address}")
         
         if current_wallet:
           
             try:
+                logger.info(f"[_fetch_address_via_core] Calling listreceivedbyaddress...")
                 received = await async_rpc_cliente(
                     "listreceivedbyaddress", 
                     [0, True, True], 
                     wallet=current_wallet
                 )
+                logger.info(f"[_fetch_address_via_core] listreceivedbyaddress returned {len(received)} addresses")
+                
+                # Log all received addresses for debugging
+                for r in received:
+                    logger.info(f"[_fetch_address_via_core] Received addr: {r.get('address')}, txids: {len(r.get('txids', []))}")
             
                 addr_info = next((r for r in received if r.get("address") == address), None)
                 if addr_info:
+                    logger.info(f"[_fetch_address_via_core] Found address in received list with {len(addr_info.get('txids', []))} txids")
                     
                     for txid in addr_info.get("txids", []):
                         try:
+                            logger.info(f"[_fetch_address_via_core] Fetching tx detail for {txid[:20]}...")
                             tx_detail = await fetch_transaction(txid)
                             transactions.append(tx_detail)
-                        except Exception:
-                            pass
+                            logger.info(f"[_fetch_address_via_core] Successfully fetched tx {txid[:20]}...")
+                        except Exception as e:
+                            logger.warning(f"[_fetch_address_via_core] Failed to fetch tx {txid}: {e}")
+                    logger.info(f"[_fetch_address_via_core] Returning {len(transactions)} transactions from received list")
                     return transactions
-            except Exception:
-                pass
+                else:
+                    logger.debug(f"[_fetch_address_via_core] Address {address[:30]}... not found in received list (expected for external addresses)")
+            except Exception as e:
+                logger.error(f"[_fetch_address_via_core] listreceivedbyaddress failed: {e}")
             
            
             try:
-                since = await async_rpc_cliente("listsinceblock", ["0000000000000000000000000000000000000000000000000000000000000000"], wallet=current_wallet)
-                for tx in since.get("transactions", []):
-                    if tx.get("address") == address or address in str(tx.get("address", "")):
+                logger.info(f"[_fetch_address_via_core] Trying listtransactions fallback...")
+                wallet_txs = await async_rpc_cliente("listtransactions", ["*", 1000, 0, True], wallet=current_wallet)
+                logger.info(f"[_fetch_address_via_core] listtransactions returned {len(wallet_txs)} txs")
+                
+                logger.info(f"[_fetch_address_via_core] Checking {len(wallet_txs)} transactions for address {address[:30]}...")
+                for tx in wallet_txs:
+                    tx_addr = tx.get("address")
+                    txid = tx.get("txid")
+                    if not txid:
+                        continue
+                    # Check if this tx involves the target address
+                    involves_address = False
+                    if tx_addr == address:
+                        logger.info(f"[_fetch_address_via_core] Found matching tx_addr: {tx_addr[:30]}...")
+                        involves_address = True
+                    else:
+                        # Check details to see if address appears anywhere
                         try:
-                            tx_detail = await fetch_transaction(tx["txid"])
-                            if tx_detail not in transactions:
+                            tx_detail = await fetch_transaction(txid)
+                            # Check inputs
+                            for inp in tx_detail.get("vin", []):
+                                inp_addr = inp.get("prevout", {}).get("scriptpubkey_address")
+                                if inp_addr == address:
+                                    logger.info(f"[_fetch_address_via_core] Found address in input of {txid[:20]}...")
+                                    involves_address = True
+                                    break
+                            # Check outputs
+                            if not involves_address:
+                                for out in tx_detail.get("vout", []):
+                                    out_addr = out.get("scriptpubkey_address")
+                                    if out_addr == address:
+                                        logger.info(f"[_fetch_address_via_core] Found address in output of {txid[:20]}...")
+                                        involves_address = True
+                                        break
+                            if involves_address and tx_detail not in transactions:
                                 transactions.append(tx_detail)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                                logger.info(f"[_fetch_address_via_core] Added tx from listtransactions: {txid[:20]}...")
+                        except Exception as e:
+                            logger.debug(f"Could not check tx details: {e}")
+                
+                if transactions:
+                    logger.info(f"[_fetch_address_via_core] Returning {len(transactions)} transactions from listtransactions")
+                    return transactions
+            except Exception as e:
+                logger.error(f"[_fetch_address_via_core] listtransactions failed: {e}")
+            
+            # Fallback 3: Use scantxoutset to scan UTXO set (works for any address, not just wallet)
+            try:
+                logger.info(f"[_fetch_address_via_core] Trying scantxoutset fallback for {address[:30]}...")
+                scan_result = await async_rpc_cliente("scantxoutset", ["start", [f"addr({address})"]])
+                
+                if scan_result and scan_result.get("success"):
+                    unspents = scan_result.get("unspents", [])
+                    logger.info(f"[_fetch_address_via_core] scantxoutset found {len(unspents)} UTXOs")
+                    
+                    for utxo in unspents:
+                        txid = utxo.get("txid")
+                        if txid:
+                            try:
+                                tx_detail = await fetch_transaction(txid)
+                                if tx_detail not in transactions:
+                                    transactions.append(tx_detail)
+                                    logger.info(f"[_fetch_address_via_core] Added tx from scantxoutset: {txid[:20]}...")
+                            except Exception as e:
+                                logger.debug(f"Could not fetch tx from scantxoutset: {e}")
+                    
+                    if transactions:
+                        logger.info(f"[_fetch_address_via_core] Returning {len(transactions)} transactions from scantxoutset")
+                        return transactions
+                else:
+                    logger.warning(f"[_fetch_address_via_core] scantxoutset failed or returned no results")
+            except Exception as e:
+                logger.debug(f"[_fetch_address_via_core] scantxoutset not available or failed: {e}")
+        else:
+            logger.warning(f"[_fetch_address_via_core] No current wallet set!")
+            
+            # Even without wallet, try scantxoutset as last resort
+            try:
+                logger.info(f"[_fetch_address_via_core] Trying scantxoutset without wallet...")
+                scan_result = await async_rpc_cliente("scantxoutset", ["start", [f"addr({address})"]])
+                
+                if scan_result and scan_result.get("success"):
+                    unspents = scan_result.get("unspents", [])
+                    logger.info(f"[_fetch_address_via_core] scantxoutset found {len(unspents)} UTXOs (no wallet)")
+                    
+                    for utxo in unspents:
+                        txid = utxo.get("txid")
+                        if txid:
+                            try:
+                                tx_detail = await fetch_transaction(txid)
+                                if tx_detail not in transactions:
+                                    transactions.append(tx_detail)
+                            except Exception as e:
+                                logger.debug(f"Could not fetch tx: {e}")
+                    
+                    if transactions:
+                        logger.info(f"[_fetch_address_via_core] Returning {len(transactions)} from scantxoutset (no wallet)")
+                        return transactions
+            except Exception as e:
+                logger.debug(f"scantxoutset without wallet failed: {e}")
+            
     except Exception as e:
-        logger.debug(f"Could not fetch from Bitcoin Core: {e}")
+        logger.error(f"[_fetch_address_via_core] Could not fetch from Bitcoin Core: {e}")
     
+    logger.warning(f"[_fetch_address_via_core] Returning {len(transactions)} transactions (empty or fallback)")
     return transactions
 
 
 async def fetch_address_transactions(address: str) -> list[dict]:
+    logger.info(f"Fetching transactions for address: {address[:30]}...")
+    logger.info(f"USE_BITCOIN_CORE={settings.USE_BITCOIN_CORE}, RPC_USER={settings.BITCOIN_RPC_USER}, RPC_PASS={'***' if settings.BITCOIN_RPC_PASSWORD else 'EMPTY'}")
+    
     # Try Bitcoin Core first
     if settings.USE_BITCOIN_CORE:
         try:
             core_txs = await _fetch_address_via_core(address)
+            logger.info(f"Bitcoin Core returned {len(core_txs)} transactions for {address[:30]}...")
             if core_txs:
                 return core_txs
         except Exception as e:
@@ -185,7 +338,9 @@ async def fetch_address_transactions(address: str) -> list[dict]:
     
     # Fallback to mempool API
     try:
-        return await _mempool_get(f"/address/{address}/txs")
+        mempool_txs = await _mempool_get(f"/address/{address}/txs")
+        logger.info(f"Mempool API returned {len(mempool_txs)} transactions for {address[:30]}...")
+        return mempool_txs
     except Exception as e:
         logger.error(f"Erro ao buscar txs de {address}: {e}")
         return []
@@ -275,6 +430,7 @@ class GraphBuilder:
         self._visited_txids: set[str] = set()
         self._visited_addresses: set[str] = set()
         self._warnings: list[str] = []
+        self._address_relationships: dict[tuple[str, str], dict] = {}
 
     async def build(self) -> GraphData:
         logger.info(
@@ -283,7 +439,10 @@ class GraphBuilder:
         )
 
         self._add_address_node(self.watched_address, is_watched=True)
+        logger.info(f"Nó inicial adicionado. Total de nós: {len(self._nodes)}")
+        
         await self._expand_address(self.watched_address, current_depth=0)
+        logger.info(f"Expansão completa. Total de nós: {len(self._nodes)}, edges: {len(self._edges)}")
 
         all_transactions = await self._collect_all_transactions()
         clusters = apply_cioh(all_transactions)
@@ -295,26 +454,130 @@ class GraphBuilder:
                 f"O padrão de envio facilita o rastreio dos teus fundos."
             )
 
+        # Populate relationships in nodes
+        self._populate_node_relationships()
+        
+        # Create address-to-address edges for relationships
+        address_edges = self._create_relationship_edges()
+        
         stats = self._calculate_stats(clusters)
+        # Add relationship stats
+        stats["relationships"] = len(self._address_relationships)
+        stats["address_to_address_edges"] = len(address_edges)
 
         logger.info(
             f"Grafo construído: {len(self._nodes)} nós, "
-            f"{len(self._edges)} arestas, {len(clusters)} clusters"
+            f"{len(self._edges)} arestas tx, {len(address_edges)} arestas rel, "
+            f"{len(clusters)} clusters, {len(self._address_relationships)} relações"
         )
+        
+        # Combine transaction edges with relationship edges
+        all_edges = self._edges + address_edges
 
         return GraphData(
             nodes=list(self._nodes.values()),
-            edges=self._edges,
+            edges=all_edges,
             clusters=clusters,
             depth_reached=self.max_depth,
             warnings=self._warnings,
             stats=stats,
         )
 
+    def _populate_node_relationships(self) -> None:
+        """Populate relationship data and connected addresses in each node"""
+        from app.models.graph import ConnectedAddressInfo
+        
+        for key, rel in self._address_relationships.items():
+            addr1, addr2 = rel["addresses"]
+            
+            # Add relationship to both nodes (backward compatible)
+            for addr in [addr1, addr2]:
+                if addr in self._nodes:
+                    other_addr = addr2 if addr == addr1 else addr1
+                    
+                    # Determine direction from this node's perspective
+                    if addr == self.watched_address:
+                        direction = rel["direction"]
+                    else:
+                        # Reverse direction for the other address
+                        direction = "incoming" if rel["direction"] == "outgoing" else "outgoing" if rel["direction"] == "incoming" else rel["direction"]
+                    
+                    relationship_data = {
+                        "peer_address": other_addr,
+                        "type": rel["relationship_type"],
+                        "confidence": rel["confidence"],
+                        "shared_transactions": rel["shared_transactions"],
+                        "total_value_sats": rel["total_value_transferred"],
+                        "direction": direction,
+                        "heuristics": rel["heuristics"],
+                    }
+                    self._nodes[addr].relationships.append(relationship_data)
+                    self._nodes[addr].transaction_count += len(rel["shared_transactions"])
+                    self._nodes[addr].total_volume_sats += rel["total_value_transferred"]
+                    
+                    # Build detailed transaction list
+                    transactions = []
+                    for txid in rel["shared_transactions"]:
+                        tx_info = {
+                            "txid": txid,
+                            "value_sats": rel.get("tx_values", {}).get(txid, 0),
+                            "timestamp": rel.get("tx_timestamps", {}).get(txid),
+                            "is_cioh": "cioh" in rel["heuristics"]
+                        }
+                        transactions.append(tx_info)
+                    
+                    # Check if connected address is a known entity
+                    entity = _resolve_entity(other_addr)
+                    is_known_entity = entity is not None
+                    entity_name = entity.get("name") if entity else None
+                    
+                    # Create connected address info
+                    connected_info = ConnectedAddressInfo(
+                        address=other_addr,
+                        relationship_type=rel["relationship_type"],
+                        confidence=rel["confidence"],
+                        transactions=transactions,
+                        total_value_sats=rel["total_value_transferred"],
+                        direction=direction,
+                        heuristics=rel["heuristics"],
+                        is_known_entity=is_known_entity,
+                        entity_name=entity_name,
+                        first_seen=rel.get("first_seen"),
+                        last_seen=rel.get("last_seen")
+                    )
+                    self._nodes[addr].connected_addresses.append(connected_info)
+
+    def _create_relationship_edges(self) -> list[GraphEdge]:
+        """Create direct address-to-address edges for strong relationships"""
+        edges = []
+        for key, rel in self._address_relationships.items():
+            addr1, addr2 = rel["addresses"]
+            
+            # Only create direct edge for strong relationships (>0.5 confidence)
+            if rel["confidence"] >= 0.5:
+                edge = GraphEdge(
+                    source=addr1,
+                    target=addr2,
+                    value_sats=rel["total_value_transferred"],
+                    txid=rel["shared_transactions"][0] if rel["shared_transactions"] else "",
+                    is_cioh="cioh" in rel["heuristics"],
+                    confidence=rel["confidence"],
+                    relationship_type=rel["relationship_type"],
+                    details={
+                        "shared_tx_count": len(rel["shared_transactions"]),
+                        "direction": rel["direction"],
+                        "heuristics": rel["heuristics"],
+                    }
+                )
+                edges.append(edge)
+        return edges
+
     async def _expand_address(self, address: str, current_depth: int) -> None:
         if current_depth >= self.max_depth:
+            logger.debug(f"Max depth reached for {address[:20]}...")
             return
         if address in self._visited_addresses:
+            logger.debug(f"Address already visited: {address[:20]}...")
             return
         if len(self._nodes) >= self.max_nodes:
             self._warnings.append(
@@ -324,8 +587,10 @@ class GraphBuilder:
             return
 
         self._visited_addresses.add(address)
+        logger.info(f"Expanding address: {address[:30]}... at depth {current_depth}")
 
         transactions = await fetch_address_transactions(address)
+        logger.info(f"Found {len(transactions)} transactions for {address[:30]}...")
 
         for tx in transactions:
             txid = tx.get("txid", "")
@@ -404,11 +669,30 @@ class GraphBuilder:
                 txid=txid,
                 label=f"{value / 1e8:.8f} BTC",
             ))
+            
+            # Track relationship between input addresses and this output
+            for inp_addr in input_addresses:
+                self._track_relationship(inp_addr, addr, txid, value, "transaction")
 
         output_addresses = [
             out.get("scriptpubkey_address", "")
             for out in outputs
         ]
+        
+        # Track CIOH relationships (addresses appearing together as inputs)
+        if len(input_addresses) > 1:
+            for i, addr1 in enumerate(input_addresses):
+                for addr2 in input_addresses[i+1:]:
+                    self._track_relationship(addr1, addr2, txid, total_value, "cioh")
+                    # Mark this relationship with CIOH heuristic
+                    key = tuple(sorted([addr1, addr2]))
+                    if key in self._address_relationships:
+                        if "cioh" not in self._address_relationships[key]["heuristics"]:
+                            self._address_relationships[key]["heuristics"].append("cioh")
+                            self._address_relationships[key]["relationship_type"] = "cluster"
+                            # Increase confidence for CIOH
+                            self._address_relationships[key]["confidence"] = min(1.0, 0.7 + (len(self._address_relationships[key]["shared_transactions"]) * 0.1))
+        
         reused = set(input_addresses) & set(output_addresses)
         if reused:
             for addr in reused:
@@ -443,7 +727,7 @@ class GraphBuilder:
             if tasks:
                 await asyncio.gather(*tasks)
 
-    def _add_address_node(self, address: str, is_watched: bool = False) -> None:
+    def _add_address_node(self, address: str, is_watched: bool = False, cluster_id: str = None, cluster_confidence: float = None) -> None:
         if address in self._nodes:
             if is_watched:
                 self._nodes[address].is_watched = True
@@ -476,8 +760,57 @@ class GraphBuilder:
             risk=risk,
             is_watched=is_watched,
             entity_name=entity_name,
+            cluster_id=cluster_id,
+            cluster_confidence=cluster_confidence,
             metadata={"full_address": address},
+            relationships=[],
+            transaction_count=0,
+            total_volume_sats=0,
         )
+
+    def _track_relationship(self, from_addr: str, to_addr: str, txid: str, value_sats: int, relationship_type: str = "transaction", timestamp: str = None) -> None:
+        """Track relationship between two addresses with detailed transaction info"""
+        key = tuple(sorted([from_addr, to_addr]))
+        
+        if key not in self._address_relationships:
+            self._address_relationships[key] = {
+                "addresses": [from_addr, to_addr],
+                "shared_transactions": [],
+                "total_value_transferred": 0,
+                "relationship_type": relationship_type,
+                "confidence": 0.0,
+                "heuristics": [],
+                "direction": "unknown",
+                "tx_values": {},  # Track value per transaction
+                "tx_timestamps": {},  # Track timestamp per transaction
+                "first_seen": None,
+                "last_seen": None
+            }
+        
+        rel = self._address_relationships[key]
+        if txid not in rel["shared_transactions"]:
+            rel["shared_transactions"].append(txid)
+            rel["tx_values"][txid] = value_sats
+            if timestamp:
+                rel["tx_timestamps"][txid] = timestamp
+                # Update first/last seen
+                if rel["first_seen"] is None or timestamp < rel["first_seen"]:
+                    rel["first_seen"] = timestamp
+                if rel["last_seen"] is None or timestamp > rel["last_seen"]:
+                    rel["last_seen"] = timestamp
+        
+        rel["total_value_transferred"] += value_sats
+        
+        # Calculate confidence based on number of shared transactions
+        rel["confidence"] = min(1.0, 0.3 + (len(rel["shared_transactions"]) * 0.1))
+        
+        # Determine direction
+        if from_addr == self.watched_address:
+            rel["direction"] = "outgoing"
+        elif to_addr == self.watched_address:
+            rel["direction"] = "incoming"
+        else:
+            rel["direction"] = "indirect"
 
     async def _collect_all_transactions(self) -> list[dict]:
         tasks = [fetch_transaction(txid) for txid in list(self._visited_txids)[:50]]
