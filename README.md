@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./frontend/public/Penumbra.svg" width="320" alt="PENUMBRA Logo">
+  <img src="https://raw.githubusercontent.com/MrAiKen007/PENUMBRA/main/frontend/public/Penumbra.svg" width="320" alt="PENUMBRA Logo">
 </p>
 
 
