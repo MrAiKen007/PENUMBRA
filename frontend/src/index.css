@@ -135,6 +135,16 @@
   code, pre, .font-mono {
     font-family: var(--font-mono);
   }
+
+  /* Garante que o texto digitado em inputs seja sempre visível */
+  input, textarea, select {
+    color: hsl(var(--foreground));
+    background-color: #ffffff;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+  }
 }
 
 /* Custom scrollbar */

@@ -10,23 +10,19 @@ from app.models.forensic import (
     ForensicReport, EntityCluster, FlowPath
 )
 from app.models.graph import NodeRisk
-from app.services.graph_builder import fetch_transaction, fetch_address_transactions, _resolve_entity
+from app.services.graph_builder import (
+    fetch_transaction, fetch_address_transactions,
+    _resolve_entity, _load_user_entities,
+    KNOWN_ENTITIES, EXCHANGE_PREFIXES,
+    _user_entities_cache,
+)
 from app.core.bitcoin_rpc import async_rpc_cliente
 
 logger = logging.getLogger(__name__)
 
-# Base de dados de endereços conhecidos (entidades)
-KNOWN_ENTITIES_DB = {
-    # Exchanges
-    "1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s": {"name": "Binance Cold", "type": "exchange", "risk": "high"},
-    "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo": {"name": "Binance Hot", "type": "exchange", "risk": "high"},
-    "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97": {"name": "Coinbase", "type": "exchange", "risk": "high"},
-    "1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF": {"name": "MtGox Cold", "type": "exchange", "risk": "high"},
-    # Mixers
-    "1CK6KHY6MHgYvmRQ4PAafKYDrg1ejbH1cE": {"name": "BitcoinFog", "type": "mixer", "risk": "critical"},
-    # Services
-    "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h": {"name": "Satoshi Dice", "type": "gambling", "risk": "medium"},
-}
+# NOTA: A base de dados de entidades conhecidas está em graph_builder.KNOWN_ENTITIES
+# e na DB (carregada via _load_user_entities). NÃO usar dict local aqui.
+# Usar sempre _resolve_entity(address) que consulta ambas as fontes.
 
 
 class ScriptAnalyzer:
@@ -390,7 +386,8 @@ class ForensicAnalyzer:
         self.change_detector = ChangeDetector()
         self.clustering = ClusteringEngine()
         self.analyzed_txids: Set[str] = set()
-        self.known_entities = KNOWN_ENTITIES_DB
+        # Endereços que interagiram com o endereço alvo (candidatos a revisão humana)
+        self._direct_counterparties: Set[str] = set()
     
     async def analyze_address(
         self,
@@ -401,7 +398,10 @@ class ForensicAnalyzer:
         Análise forense completa de um endereço.
         """
         logger.info(f"Iniciando análise forense de {address[:20]}...")
-        
+
+        # Bug 1 fix: carrega entidades da DB ANTES de analisar
+        await _load_user_entities()
+
         report = ForensicReport(
             target_address=address,
             clusters=[],
@@ -446,21 +446,24 @@ class ForensicAnalyzer:
         
         # Adiciona clusters ao relatório
         report.clusters = self.clustering.get_all_clusters()
-        
-        # Adiciona entidades conhecidas
+
+        # Adiciona entidades conhecidas (agora usa _resolve_entity que inclui DB)
         report.entity_clusters = self._detect_known_entities(report)
-        
+
         # Calcula score de privacidade
         report.privacy_score = self._calculate_privacy_score(report)
-        
+
         # Gera warnings finais
         self._generate_summary_warnings(report)
-        
+
+        # Enfileira contrapartes desconhecidas para revisão humana
+        await self._queue_for_review(address)
+
         logger.info(
             f"Análise completa: {report.total_transactions} txs, "
             f"{len(report.clusters)} clusters, {len(report.risk_addresses)} riscos"
         )
-        
+
         return report
     
     async def _analyze_transaction(
@@ -569,47 +572,90 @@ class ForensicAnalyzer:
         return max(0, input_total - output_total)
     
     def _detect_risks(self, tx_analysis: TransactionAnalysis, report: ForensicReport):
-        """Detecta endereços de risco na transação."""
-        
+        """Detecta endereços de risco na transação usando _resolve_entity (inclui DB)."""
+
         all_addresses = set(tx_analysis.input_addresses + tx_analysis.output_addresses)
-        
+
         for addr in all_addresses:
-            # Verifica entidades conhecidas
-            if addr in self.known_entities:
-                entity = self.known_entities[addr]
-                if addr not in report.risk_addresses:
-                    report.risk_addresses.append(addr)
-                    report.warnings.append(
-                        f"Endereço ligado a {entity['name']} ({entity['type']})"
-                    )
+            # Rastreia contrapartes para revisão humana
+            self._direct_counterparties.add(addr)
+
+            # Bug 1 fix: usa _resolve_entity em vez de KNOWN_ENTITIES_DB local
+            entity = _resolve_entity(addr)
+            if entity and addr not in report.risk_addresses:
+                report.risk_addresses.append(addr)
+                report.warnings.append(
+                    f"Endereço ligado a {entity['name']} (risk: {entity['risk'].value})"
+                )
     
     def _detect_known_entities(self, report: ForensicReport) -> List[EntityCluster]:
-        """Detecta entidades conhecidas no relatório."""
+        """Detecta entidades conhecidas usando _resolve_entity (hardcoded + DB do utilizador)."""
         entities = []
         all_addresses = set()
-        
+
         for tx in report.transactions_analyzed:
             all_addresses.update(tx.input_addresses)
             all_addresses.update(tx.output_addresses)
-        
+
         for addr in all_addresses:
-            if addr in self.known_entities:
-                info = self.known_entities[addr]
-                # Verifica se já existe
-                existing = next((e for e in entities if e.entity_name == info['name']), None)
+            # Bug 1 fix: usa _resolve_entity em vez de self.known_entities (dict local)
+            entity = _resolve_entity(addr)
+            if entity:
+                entity_name = entity.get("name", "Unknown")
+                entity_type = entity.get("type", "unknown")
+                risk_val = entity.get("risk", NodeRisk.HIGH)
+                risk_str = risk_val.value if hasattr(risk_val, "value") else str(risk_val)
+
+                existing = next((e for e in entities if e.entity_name == entity_name), None)
                 if existing:
                     if addr not in existing.addresses:
                         existing.addresses.append(addr)
                 else:
                     entities.append(EntityCluster(
-                        entity_name=info['name'],
-                        entity_type=info['type'],
+                        entity_name=entity_name,
+                        entity_type=entity_type,
                         addresses=[addr],
-                        risk_level=info.get('risk', 'unknown'),
-                        source='known_database'
+                        risk_level=risk_str,
+                        source="known_database"
                     ))
-        
+
         return entities
+
+    async def _queue_for_review(self, target_address: str) -> None:
+        """Enfileira contrapartes desconhecidas do endereço alvo para revisão humana."""
+        unknown = [
+            addr for addr in self._direct_counterparties
+            if addr != target_address
+            and addr not in KNOWN_ENTITIES
+            and addr not in _user_entities_cache
+        ]
+        if not unknown:
+            return
+        try:
+            from app.db import get_db, queue_address_for_review, get_entity
+            async for db in get_db():
+                for addr in unknown:
+                    existing_entity = await get_entity(db, addr)
+                    if existing_entity:
+                        continue
+                    suggested_type = None
+                    suggested_reason = None
+                    for prefix in EXCHANGE_PREFIXES:
+                        if addr.startswith(prefix):
+                            suggested_type = "exchange"
+                            suggested_reason = f"Prefixo '{prefix}' associado a exchanges"
+                            break
+                    await queue_address_for_review(
+                        db=db,
+                        address=addr,
+                        detection_source="forensic_analyzer",
+                        context={"target_address": target_address},
+                        suggested_type=suggested_type,
+                        suggested_reason=suggested_reason,
+                    )
+                break
+        except Exception as e:
+            logger.warning(f"Não foi possível enfileirar para revisão: {e}")
     
     def _calculate_privacy_score(self, report: ForensicReport) -> PrivacyScore:
         """Calcula score de privacidade geral."""

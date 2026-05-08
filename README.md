@@ -38,6 +38,8 @@ A maioria das carteiras Bitcoin assume que privacidade é automática, **não é
 
 ## Funcionalidades
 
+Video: https://drive.google.com/file/d/1NMgtJ6lIhLtRgwR0YkdExbUK14zUnQ_w/view?usp=sharing
+
 ### Privacy Engine
 Scoring de privacidade **0-100** para cada UTXO com heurísticas avançadas:
 

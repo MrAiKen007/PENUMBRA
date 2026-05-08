@@ -432,3 +432,26 @@ export interface ForensicGraphResponse {
   graph: GraphData;
   forensic: ForensicReport | null;
 }
+
+// Entity Types (User-generated KYC/Exchange/Mixer database)
+export type EntityType = 'exchange' | 'mixer' | 'gambling' | 'kyc' | 'service' | 'unknown';
+export type EntityRiskLevel = 'safe' | 'medium' | 'high' | 'critical';
+
+export interface Entity {
+  address: string;
+  name: string;
+  entity_type: EntityType;
+  risk_level: EntityRiskLevel;
+  source: string;
+  notes?: string;
+  confidence: number;
+  created_at?: string;
+}
+
+export interface EntityCreateRequest {
+  address: string;
+  name: string;
+  entity_type: EntityType;
+  risk_level: EntityRiskLevel;
+  notes?: string;
+}

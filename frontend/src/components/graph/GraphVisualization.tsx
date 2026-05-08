@@ -6,21 +6,22 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { graphApi, walletApi } from '@/lib/api'
 import { useStore } from '@/store/useStore'
+import { EntityClassifier } from './EntityClassifier'
 import {
   getRiskColor,
   truncateAddress,
   formatBTC,
   truncateTxid,
 } from '@/lib/utils'
-import type { GraphNode, GraphEdge, ForensicReport, TransactionAnalysis } from '@/types'
-import { 
-  Search, 
-  Wallet, 
-  History, 
-  ChevronDown, 
-  ChevronUp, 
-  ZoomIn, 
-  ZoomOut, 
+import type { GraphNode, GraphEdge, ForensicReport, TransactionAnalysis, Entity } from '@/types'
+import {
+  Search,
+  Wallet,
+  History,
+  ChevronDown,
+  ChevronUp,
+  ZoomIn,
+  ZoomOut,
   RotateCcw,
   Network,
   AlertTriangle,
@@ -33,7 +34,9 @@ import {
   Fingerprint,
   ArrowRightLeft,
   ExternalLink,
-  Calendar
+  Calendar,
+  Building2,
+  Tag
 } from 'lucide-react'
 
 export function GraphVisualization() {
@@ -60,6 +63,8 @@ export function GraphVisualization() {
   const [selectedTx, setSelectedTx] = useState<TransactionAnalysis | null>(null)
   const [showForensicPanel, setShowForensicPanel] = useState(true)
   const [graphError, setGraphError] = useState<string | null>(null)
+  const [showEntityClassifier, setShowEntityClassifier] = useState(false)
+  const [entityToClassify, setEntityToClassify] = useState<string | undefined>(undefined)
 
   const loadGraph = async (addr?: string) => {
     const targetAddress = addr || address
@@ -205,6 +210,11 @@ export function GraphVisualization() {
     )
   }, [currentGraph])
 
+  // Refs para armazenar dados de relacionamento para highlight
+  const nodeConnectionsRef = useRef<Map<string, Set<string>>>(new Map())
+  const edgeElementsRef = useRef<d3.Selection<any, any, any, any> | null>(null)
+  const nodeElementsRef = useRef<d3.Selection<any, any, any, any> | null>(null)
+
   useEffect(() => {
     console.log('[D3] useEffect triggered. currentGraph:', currentGraph)
     
@@ -231,6 +241,81 @@ export function GraphVisualization() {
     const height = 600
 
     svg.attr('width', width).attr('height', height)
+    
+    // === GRAFO INTERLIGADO OBSIDIAN-STYLE ===
+    // Criar arestas diretas entre endereços relacionados (além das transações)
+    const obsidianAddressNodes = currentGraph.nodes.filter(n => n.type === 'address' || n.type === 'entity')
+    const txNodes = currentGraph.nodes.filter(n => n.type === 'transaction')
+    
+    // Mapa de endereço -> transações
+    const addressToTxs = new Map<string, Set<string>>()
+    
+    // Processar arestas existentes para construir relacionamentos
+    currentGraph.edges.forEach(edge => {
+      const source = typeof edge.source === 'string' ? edge.source : (edge.source as any).id
+      const target = typeof edge.target === 'string' ? edge.target : (edge.target as any).id
+      
+      if (!source.startsWith('tx:') && target.startsWith('tx:')) {
+        // Endereço -> Transação
+        if (!addressToTxs.has(source)) addressToTxs.set(source, new Set())
+        addressToTxs.get(source)!.add(target)
+      } else if (source.startsWith('tx:') && !target.startsWith('tx:')) {
+        // Transação -> Endereço
+        if (!addressToTxs.has(target)) addressToTxs.set(target, new Set())
+        addressToTxs.get(target)!.add(source)
+      }
+    })
+    
+    // Criar arestas diretas entre endereços que compartilham múltiplas transações
+    const directAddressEdges: GraphEdge[] = []
+    const addressList = obsidianAddressNodes.map(n => n.id)
+    
+    for (let i = 0; i < addressList.length; i++) {
+      for (let j = i + 1; j < addressList.length; j++) {
+        const addr1 = addressList[i]
+        const addr2 = addressList[j]
+        
+        const txs1 = addressToTxs.get(addr1) || new Set()
+        const txs2 = addressToTxs.get(addr2) || new Set()
+        
+        // Encontrar transações em comum
+        const commonTxs = new Set([...txs1].filter(x => txs2.has(x)))
+        
+        if (commonTxs.size >= 2) {
+          // Aresta direta! Quanto mais transações em comum, mais forte a ligação
+          const strength = Math.min(commonTxs.size / 5, 1) // Max 1.0
+          
+          directAddressEdges.push({
+            source: addr1,
+            target: addr2,
+            value_sats: strength * 1e8, // Usar como proxy de força
+            txid: `direct:${addr1.slice(0,8)}_${addr2.slice(0,8)}`,
+            is_cioh: false,
+            label: `${commonTxs.size} txs`,
+            confidence: strength,
+            relationship_type: 'obsidian_link',
+          } as GraphEdge)
+        }
+      }
+    }
+    
+    console.log(`[D3] Created ${directAddressEdges.length} direct address-to-address edges`)
+    
+    // Combinar arestas originais com as diretas
+    const allEdges = [...currentGraph.edges, ...directAddressEdges]
+    
+    // Mapa de conexões para highlight
+    const connections = new Map<string, Set<string>>()
+    allEdges.forEach(edge => {
+      const source = typeof edge.source === 'string' ? edge.source : (edge.source as any).id
+      const target = typeof edge.target === 'string' ? edge.target : (edge.target as any).id
+      
+      if (!connections.has(source)) connections.set(source, new Set())
+      if (!connections.has(target)) connections.set(target, new Set())
+      connections.get(source)!.add(target)
+      connections.get(target)!.add(source)
+    })
+    nodeConnectionsRef.current = connections
     
     if (currentGraph.nodes.length === 0) {
       console.log('[D3] No nodes to render')
@@ -309,9 +394,8 @@ export function GraphVisualization() {
     const g = svg.append('g')
     gRef.current = g
 
-    // Force simulation with configurable parameters
-    const linkDistance = viewMode === 'hierarchical' ? 150 : 120
-    const chargeStrength = viewMode === 'hierarchical' ? -500 : -400
+    // === FÍSICA ORGÂNICA ESTILO OBSIDIAN ===
+    // Simulação com forças mais naturais e interligadas
     
     const simulation = d3
       .forceSimulation<GraphNode & d3.SimulationNodeDatum>(currentGraph.nodes)
@@ -319,94 +403,162 @@ export function GraphVisualization() {
         'link',
         d3
           .forceLink<GraphNode & d3.SimulationNodeDatum, GraphEdge>(
-            currentGraph.edges as any
+            allEdges as any
           )
           .id((d: any) => d.id)
-          .distance(linkDistance)
-          .strength(0.5)
+          .distance((d: any) => {
+            // Arestas Obsidian têm distância menor (nós mais próximos)
+            if (d.relationship_type === 'obsidian_link') {
+              return 60 + (1 - (d.confidence || 0.5)) * 40
+            }
+            // Arestas de transação - distância média
+            if (d.source.startsWith('tx:') || d.target.startsWith('tx:')) {
+              return 80
+            }
+            // Outras arestas diretas
+            return 100
+          })
+          .strength((d: any) => {
+            // Arestas Obsidian são mais "fortes" (atraem mais)
+            if (d.relationship_type === 'obsidian_link') {
+              return 0.8 * (d.confidence || 0.5)
+            }
+            return 0.3
+          })
       )
-      .force('charge', d3.forceManyBody().strength(chargeStrength).distanceMax(300))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(50).strength(0.7))
-      .force('x', d3.forceX(width / 2).strength(0.05))
-      .force('y', d3.forceY(height / 2).strength(0.05))
+      // Força de repulsão mais suave
+      .force('charge', d3.forceManyBody()
+        .strength((d: any) => {
+          // Endereços têm repulsão menor (queremos clusters)
+          if (d.type === 'address' || d.type === 'entity') return -150
+          if (d.type === 'transaction') return -80
+          return -200
+        })
+        .distanceMax(400)
+      )
+      // Centro suave
+      .force('center', d3.forceCenter(width / 2, height / 2).strength(0.02))
+      // Colisão suave para não sobrepor demais
+      .force('collision', d3.forceCollide()
+        .radius((d: any) => {
+          if (d.type === 'cluster') return 35
+          if (d.type === 'entity') return 30
+          if (d.type === 'transaction') return 22
+          return 25
+        })
+        .strength(0.4)
+      )
+      // Força de clustering para endereços relacionados
+      .force('cluster', (alpha: number) => {
+        // Força artificial que atrai endereços com arestas Obsidian
+        obsidianEdges.forEach(edge => {
+          const sourceNode = currentGraph.nodes.find(n => n.id === edge.source)
+          const targetNode = currentGraph.nodes.find(n => n.id === edge.target)
+          if (sourceNode && targetNode && (sourceNode as any).x && (targetNode as any).x) {
+            const dx = (targetNode as any).x - (sourceNode as any).x
+            const dy = (targetNode as any).y - (sourceNode as any).y
+            const strength = (edge.confidence || 0.5) * alpha * 0.5
+            ;(sourceNode as any).vx += dx * strength * 0.01
+            ;(sourceNode as any).vy += dy * strength * 0.01
+            ;(targetNode as any).vx -= dx * strength * 0.01
+            ;(targetNode as any).vy -= dy * strength * 0.01
+          }
+        })
+      })
+      // Força X/Y suave para manter no canvas
+      .force('x', d3.forceX(width / 2).strength(0.03))
+      .force('y', d3.forceY(height / 2).strength(0.03))
 
     // Links group
     const linkGroup = g.append('g').attr('class', 'links')
     
-    // Separate address-to-address relationships from transaction edges
-    const addressEdges = currentGraph.edges.filter(e => 
-      !e.source.startsWith('tx:') && !e.target.startsWith('tx:')
+    // Separar tipos de arestas
+    const obsidianEdges = allEdges.filter(e => (e as any).relationship_type === 'obsidian_link')
+    const addressEdges = allEdges.filter(e => 
+      !e.source.startsWith('tx:') && !e.target.startsWith('tx:') && (e as any).relationship_type !== 'obsidian_link'
     )
-    const txEdges = currentGraph.edges.filter(e => 
+    const txEdges = allEdges.filter(e => 
       e.source.startsWith('tx:') || e.target.startsWith('tx:')
     )
     
+    console.log('[D3] Obsidian direct edges:', obsidianEdges.length)
     console.log('[D3] Address-to-address edges:', addressEdges.length)
     console.log('[D3] Transaction edges:', txEdges.length)
 
-    // Links - render address relationships with stronger styling
+    // Links - com classes CSS para highlight
     const link = linkGroup
       .selectAll('line.edge')
-      .data(currentGraph.edges)
+      .data(allEdges)
       .join('line')
-      .attr('class', 'edge')
+      .attr('class', d => {
+        const source = typeof d.source === 'string' ? d.source : (d.source as any).id
+        const target = typeof d.target === 'string' ? d.target : (d.target as any).id
+        const isObsidian = (d as any).relationship_type === 'obsidian_link'
+        return `edge edge-${source.replace(/[^a-zA-Z0-9]/g, '_')} edge-${target.replace(/[^a-zA-Z0-9]/g, '_')} ${isObsidian ? 'obsidian-link' : ''}`
+      })
+      .attr('id', d => {
+        const source = typeof d.source === 'string' ? d.source : (d.source as any).id
+        const target = typeof d.target === 'string' ? d.target : (d.target as any).id
+        return `edge-${source.replace(/[^a-zA-Z0-9]/g, '_')}-${target.replace(/[^a-zA-Z0-9]/g, '_')}`
+      })
       .attr('stroke-width', (d) => {
-        // Stronger lines for address-to-address relationships
+        // Arestas Obsidian (diretas) - mais finas e elegantes
+        if ((d as any).relationship_type === 'obsidian_link') {
+          return 1 + ((d.confidence || 0.5) * 2)
+        }
+        // Outras arestas
         if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) {
           return Math.max(2, (d.confidence || 0.5) * 4)
         }
-        return Math.max(1, Math.sqrt(d.value_sats / 1e8))
+        return Math.max(0.5, Math.sqrt(d.value_sats / 1e8) * 0.5)
       })
       .attr('stroke', (d) => {
+        // Arestas Obsidian - cor roxa/azul suave
+        if ((d as any).relationship_type === 'obsidian_link') {
+          return '#8B5CF6' // Violeta suave
+        }
         // Address-to-address relationships
         if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) {
-          if (d.is_cioh) return '#FF5533' // Orange for CIOH
-          if (d.relationship_type === 'cluster') return '#6366F1' // Indigo for clusters
-          return '#10B981' // Green for regular relationships
+          if (d.is_cioh) return '#FF5533'
+          if (d.relationship_type === 'cluster') return '#6366F1'
+          return '#10B981'
         }
         // Transaction edges
         if (d.is_cioh && highlightCIOH) return '#FF5533'
         return '#9CA3AF'
       })
       .attr('stroke-opacity', (d) => {
-        if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) {
-          return 0.9 // Stronger opacity for relationships
+        if ((d as any).relationship_type === 'obsidian_link') {
+          return 0.4 // Mais sutis
         }
-        return d.is_cioh && highlightCIOH ? 0.8 : 0.3
+        if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) {
+          return 0.9
+        }
+        return d.is_cioh && highlightCIOH ? 0.8 : 0.2
       })
       .attr('filter', (d) => d.is_cioh ? 'url(#glow)' : null)
       .attr('stroke-dasharray', (d) => {
+        if ((d as any).relationship_type === 'obsidian_link') {
+          return null // Linhas sólidas para Obsidian
+        }
         if (d.is_cioh) return '5,5'
         if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) return null
-        return '2,2' // Dashed for tx edges
+        return '2,2'
       })
       .style('cursor', 'pointer')
-      .on('mouseover', function(_event: any, d: any) {
-        d3.select(this).attr('stroke-opacity', 1).attr('stroke-width', 5)
-        // Show tooltip
-        if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) {
-          console.log('[D3] Edge hover:', d)
-        }
-      })
-      .on('mouseout', function(_event: any, d: any) {
-        const baseWidth = (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) 
-          ? Math.max(2, (d.confidence || 0.5) * 4)
-          : Math.max(1, Math.sqrt(d.value_sats / 1e8))
-        d3.select(this)
-          .attr('stroke-opacity', (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) ? 0.9 : (d.is_cioh && highlightCIOH ? 0.8 : 0.3))
-          .attr('stroke-width', baseWidth)
-      })
+    
+    // Guardar referência para highlight
+    edgeElementsRef.current = link
 
     // Nodes group
     const nodeGroup = g.append('g').attr('class', 'nodes')
     
-    // Nodes
+    // Nodes - com highlight de conexões estilo Obsidian
     const node = nodeGroup
       .selectAll('g')
       .data(currentGraph.nodes)
       .join('g')
-      .attr('class', 'graph-node')
+      .attr('class', d => `graph-node node-${d.id.replace(/[^a-zA-Z0-9]/g, '_')}`)
       .style('cursor', 'pointer')
       .call(
         d3
@@ -430,14 +582,65 @@ export function GraphVisualization() {
         setSelectedNode(d)
         centerOnNode(d.id)
       })
-      .on('mouseover', function(_, d) {
+      .on('mouseover', function(event, d) {
         setHoveredNode(d)
+        
+        // === HIGHLIGHT ESTILO OBSIDIAN ===
+        const nodeId = d.id.replace(/[^a-zA-Z0-9]/g, '_')
+        const connectedNodes = connections.get(d.id) || new Set()
+        
+        // Diminuir opacidade de todos os nós e arestas
+        d3.selectAll('.graph-node').style('opacity', 0.2)
+        d3.selectAll('.edge').attr('stroke-opacity', 0.05)
+        
+        // Destacar o nó atual
+        d3.select(this).style('opacity', 1)
         d3.select(this).select('circle').attr('stroke-width', 4)
+          .style('filter', 'drop-shadow(0 0 8px rgba(139, 92, 246, 0.6))')
+        
+        // Destacar nós conectados
+        connectedNodes.forEach(connectedId => {
+          const safeId = connectedId.replace(/[^a-zA-Z0-9]/g, '_')
+          d3.select(`.node-${safeId}`).style('opacity', 1)
+        })
+        
+        // Destacar arestas conectadas
+        d3.selectAll(`.edge-${nodeId}`)
+          .attr('stroke-opacity', 1)
+          .attr('stroke-width', (d: any) => {
+            const baseWidth = (d.relationship_type === 'obsidian_link')
+              ? 1 + ((d.confidence || 0.5) * 2)
+              : Math.max(0.5, Math.sqrt(d.value_sats / 1e8) * 0.5)
+            return baseWidth * 2 // Aumentar em hover
+          })
       })
-      .on('mouseout', function() {
+      .on('mouseout', function(_, d) {
         setHoveredNode(null)
-        d3.select(this).select('circle').attr('stroke-width', 2)
+        
+        // Restaurar opacidades normais
+        d3.selectAll('.graph-node').style('opacity', 1)
+        d3.selectAll('.edge')
+          .attr('stroke-opacity', (d: any) => {
+            if (d.relationship_type === 'obsidian_link') return 0.4
+            if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) return 0.9
+            return d.is_cioh && highlightCIOH ? 0.8 : 0.2
+          })
+          .attr('stroke-width', (d: any) => {
+            if (d.relationship_type === 'obsidian_link') {
+              return 1 + ((d.confidence || 0.5) * 2)
+            }
+            if (!d.source.startsWith('tx:') && !d.target.startsWith('tx:')) {
+              return Math.max(2, (d.confidence || 0.5) * 4)
+            }
+            return Math.max(0.5, Math.sqrt(d.value_sats / 1e8) * 0.5)
+          })
+        
+        d3.select(this).select('circle').attr('stroke-width', d => d.is_watched ? 3 : 2)
+          .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))')
       })
+    
+    // Guardar referência
+    nodeElementsRef.current = node
 
     // Node circles with better styling
     node
@@ -817,6 +1020,10 @@ export function GraphVisualization() {
               <div className="flex items-center gap-2">
                 <div className="w-6 h-0.5 bg-orange-500 rounded-full" />
                 <span className="text-slate-600 font-medium">CIOH Detectado</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-0.5 bg-violet-500 rounded-full opacity-60" />
+                <span className="text-slate-600 font-medium">Ligação Direta (Obsidian)</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-pink-500" />
@@ -1266,9 +1473,9 @@ export function GraphVisualization() {
               )}
               
               <div className="flex gap-2 pt-4 border-t border-slate-200">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="flex-1"
                   onClick={() => {
                     setAddress(selectedNode.id)
@@ -1278,14 +1485,51 @@ export function GraphVisualization() {
                   <Search className="w-4 h-4 mr-2" />
                   Explorar
                 </Button>
-                <Button 
-                  variant="outline" 
+                {selectedNode.type === 'address' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEntityToClassify(selectedNode.id)
+                      setShowEntityClassifier(true)
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <Tag className="w-4 h-4" />
+                    Classificar
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => navigator.clipboard.writeText(selectedNode.id)}
                 >
-                  Copiar ID
+                  Copiar
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Entity Classifier Modal */}
+        {showEntityClassifier && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl max-h-[90vh] overflow-auto">
+              <EntityClassifier
+                address={entityToClassify}
+                onEntitySaved={(entity: Entity) => {
+                  setShowEntityClassifier(false)
+                  setEntityToClassify(undefined)
+                  // Reload graph to show new entity
+                  if (currentGraph) {
+                    loadGraph()
+                  }
+                }}
+                onClose={() => {
+                  setShowEntityClassifier(false)
+                  setEntityToClassify(undefined)
+                }}
+              />
             </div>
           </div>
         )}

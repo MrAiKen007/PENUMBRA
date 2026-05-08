@@ -12,7 +12,8 @@ from app.models.forensic import (
 )
 from app.services.graph_builder import (
     fetch_transaction, fetch_address_transactions, 
-    _resolve_entity, KNOWN_ENTITIES, EXCHANGE_PREFIXES
+    _resolve_entity, _load_user_entities,
+    KNOWN_ENTITIES, EXCHANGE_PREFIXES, _user_entities_cache,
 )
 from app.services.forensic_analyzer import (
     ForensicAnalyzer, ChangeDetector, ClusteringEngine,
@@ -81,7 +82,11 @@ class ForensicGraphBuilder:
             f"Construindo grafo forense para {self.watched_address[:20]}... "
             f"(depth={self.max_depth}, forensic={self.enable_forensic})"
         )
-        
+
+        # Bug 2 fix: carrega entidades da DB ANTES de construir o grafo
+        # (o GraphBuilder normal faz isto; o ForensicGraphBuilder não fazia)
+        await _load_user_entities()
+
         # Análise forense completa primeiro
         forensic_report = None
         if self.enable_forensic:

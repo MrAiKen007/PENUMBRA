@@ -14,6 +14,7 @@ from app.core.bitcoin_rpc import async_rpc_cliente
 logger = logging.getLogger(__name__)
 
 
+# Entidades hardcoded (fallback)
 KNOWN_ENTITIES: dict[str, dict] = {
     "1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s": {"name": "Binance Cold Wallet", "risk": NodeRisk.HIGH},
     "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo": {"name": "Binance Hot Wallet", "risk": NodeRisk.HIGH},
@@ -26,16 +27,85 @@ KNOWN_ENTITIES: dict[str, dict] = {
 
 EXCHANGE_PREFIXES = ["1NDy", "34xp", "3Cbq", "bc1qm4"]
 
+# Cache de entidades da DB
+_user_entities_cache: dict[str, dict] = {}
+_cache_loaded = False
+
+
+async def _load_user_entities() -> dict[str, dict]:
+    """Carrega entidades do usuário da base de dados."""
+    global _user_entities_cache, _cache_loaded
+
+    if _cache_loaded:
+        return _user_entities_cache
+
+    try:
+        from app.db import get_db, get_all_entities
+        async for db in get_db():
+            entities = await get_all_entities(db, limit=10000)
+            _user_entities_cache = {
+                e.address: {
+                    "name": e.name,
+                    "risk": _risk_from_string(e.risk_level),  # Bug 3 fix: "medium" -> CAUTION
+                    "type": e.entity_type,
+                    "source": e.source,
+                }
+                for e in entities
+            }
+            _cache_loaded = True
+            logger.info(f"Loaded {len(_user_entities_cache)} user entities from DB")
+            return _user_entities_cache
+    except Exception as e:
+        logger.warning(f"Could not load user entities from DB: {e}")
+        _cache_loaded = True  # Don't retry on error
+        return {}
+
+
+def _risk_from_string(risk_str: str) -> NodeRisk:
+    """Converte string de risco para enum."""
+    mapping = {
+        "safe": NodeRisk.SAFE,
+        "caution": NodeRisk.CAUTION,
+        "medium": NodeRisk.CAUTION,
+        "high": NodeRisk.HIGH,
+        "critical": NodeRisk.CRITICAL,
+    }
+    return mapping.get(risk_str.lower(), NodeRisk.HIGH)
+
 
 def _resolve_entity(address: str) -> Optional[dict]:
+    """Resolve entidade para um endereço (hardcoded + cache da DB)."""
+    # Primeiro verifica hardcoded
     if address in KNOWN_ENTITIES:
         return KNOWN_ENTITIES[address]
 
+    # Depois verifica cache de entidades do usuário
+    if address in _user_entities_cache:
+        entity = _user_entities_cache[address]
+        return {
+            "name": entity["name"],
+            "risk": entity["risk"],
+        }
+
+    # Fallback para prefixos conhecidos
     for prefix in EXCHANGE_PREFIXES:
         if address.startswith(prefix):
             return {"name": "Exchange conhecida", "risk": NodeRisk.HIGH}
 
     return None
+
+
+async def _resolve_entity_async(address: str) -> Optional[dict]:
+    """Versão assíncrona que garante carregamento da DB."""
+    await _load_user_entities()
+    return _resolve_entity(address)
+
+
+def invalidate_entity_cache():
+    """Invalida o cache de entidades (chamar após criar/atualizar entidade)."""
+    global _cache_loaded, _user_entities_cache
+    _cache_loaded = False
+    _user_entities_cache = {}
 
 
 async def _mempool_get(path: str) -> dict | list:
@@ -322,12 +392,22 @@ async def _fetch_address_via_core(address: str) -> list[dict]:
     return transactions
 
 
+def _is_regtest_address(address: str) -> bool:
+    """Detecta se endereço é regtest (bcrt1, m, n, 2)"""
+    return address.startswith("bcrt1") or address.startswith("m") or address.startswith("n") or address.startswith("2")
+
+
 async def fetch_address_transactions(address: str) -> list[dict]:
     logger.info(f"Fetching transactions for address: {address[:30]}...")
     logger.info(f"USE_BITCOIN_CORE={settings.USE_BITCOIN_CORE}, RPC_USER={settings.BITCOIN_RPC_USER}, RPC_PASS={'***' if settings.BITCOIN_RPC_PASSWORD else 'EMPTY'}")
-    
+
+    # Detect regtest address - mempool API doesn't work with regtest
+    is_regtest = _is_regtest_address(address)
+    if is_regtest:
+        logger.info(f"Regtest address detected: {address[:30]}... - using Bitcoin Core only")
+
     # Try Bitcoin Core first
-    if settings.USE_BITCOIN_CORE:
+    if settings.USE_BITCOIN_CORE or is_regtest:
         try:
             core_txs = await _fetch_address_via_core(address)
             logger.info(f"Bitcoin Core returned {len(core_txs)} transactions for {address[:30]}...")
@@ -335,8 +415,12 @@ async def fetch_address_transactions(address: str) -> list[dict]:
                 return core_txs
         except Exception as e:
             logger.debug(f"Bitcoin Core fetch failed: {e}")
-    
-    # Fallback to mempool API
+
+    # Fallback to mempool API (skip for regtest)
+    if is_regtest:
+        logger.warning(f"No transactions found for regtest address {address[:30]}... via Core")
+        return []
+
     try:
         mempool_txs = await _mempool_get(f"/address/{address}/txs")
         logger.info(f"Mempool API returned {len(mempool_txs)} transactions for {address[:30]}...")
@@ -431,6 +515,9 @@ class GraphBuilder:
         self._visited_addresses: set[str] = set()
         self._warnings: list[str] = []
         self._address_relationships: dict[tuple[str, str], dict] = {}
+        # Endereços que interagiram diretamente com o endereço vigiado
+        # (candidatos a revisão humana: podem ser KYC, exchange, mixer...)
+        self._direct_counterparties: set[str] = set()
 
     async def build(self) -> GraphData:
         logger.info(
@@ -438,11 +525,17 @@ class GraphBuilder:
             f"(depth={self.max_depth}, max_nodes={self.max_nodes})"
         )
 
+        # Carrega entidades do usuário da DB primeiro
+        await _load_user_entities()
+
         self._add_address_node(self.watched_address, is_watched=True)
         logger.info(f"Nó inicial adicionado. Total de nós: {len(self._nodes)}")
-        
+
         await self._expand_address(self.watched_address, current_depth=0)
         logger.info(f"Expansão completa. Total de nós: {len(self._nodes)}, edges: {len(self._edges)}")
+
+        # Após construção: enfileirar endereços desconhecidos para revisão humana
+        await self._queue_counterparties_for_review()
 
         all_transactions = await self._collect_all_transactions()
         clusters = apply_cioh(all_transactions)
@@ -474,6 +567,26 @@ class GraphBuilder:
         # Combine transaction edges with relationship edges
         all_edges = self._edges + address_edges
 
+        # Detectar se a análise é inconclusiva (necessita input manual)
+        needs_manual_input = False
+        manual_input_reason = None
+
+        if stats.get("total_transactions", 0) == 0:
+            needs_manual_input = True
+            manual_input_reason = "no_transactions"
+            self._warnings.append(
+                "Nenhuma transação encontrada para este endereço. "
+                "Verifica se o endereço está correto ou adiciona informação manual."
+            )
+        elif stats.get("related_addresses", 0) == 0 and not clusters:
+            needs_manual_input = True
+            manual_input_reason = "no_patterns"
+            self._warnings.append(
+                "Nenhum padrão ou endereço relacionado detetado. "
+                "O sistema não conseguiu analisar automaticamente. "
+                "Considera adicionar este endereço como entidade conhecida."
+            )
+
         return GraphData(
             nodes=list(self._nodes.values()),
             edges=all_edges,
@@ -481,6 +594,8 @@ class GraphBuilder:
             depth_reached=self.max_depth,
             warnings=self._warnings,
             stats=stats,
+            needs_manual_input=needs_manual_input,
+            manual_input_reason=manual_input_reason,
         )
 
     def _populate_node_relationships(self) -> None:
@@ -704,6 +819,15 @@ class GraphBuilder:
                             f"Isso liga directamente o pagamento e o troco ao mesmo utilizador."
                         )
 
+        # Rastreia contrapartes diretas do endereço vigiado para revisão humana
+        all_tx_addresses = set(input_addresses) | set(
+            out.get("scriptpubkey_address", "") for out in tx_detail.get("vout", []) if out.get("scriptpubkey_address")
+        )
+        if self.watched_address in all_tx_addresses:
+            for addr in all_tx_addresses:
+                if addr and addr != self.watched_address and addr not in ["COINBASE", "unknown"]:
+                    self._direct_counterparties.add(addr)
+
         if len(input_addresses) > 1:
             has_watched = self.watched_address in input_addresses
             if has_watched:
@@ -811,6 +935,65 @@ class GraphBuilder:
             rel["direction"] = "incoming"
         else:
             rel["direction"] = "indirect"
+
+    async def _queue_counterparties_for_review(self) -> None:
+        """
+        Enfileira para revisão humana os endereços desconhecidos que interagiram
+        diretamente com o endereço vigiado.
+        Só enfileira se o endereço NÃO estiver já identificado como entidade.
+        """
+        if not self._direct_counterparties:
+            return
+
+        try:
+            from app.db import get_db, queue_address_for_review, get_entity
+            unknown = [
+                addr for addr in self._direct_counterparties
+                if addr not in KNOWN_ENTITIES and addr not in _user_entities_cache
+            ]
+            if not unknown:
+                return
+
+            logger.info(f"Enfileirando {len(unknown)} endereços para revisão humana")
+            async for db in get_db():
+                for addr in unknown:
+                    # Verifica se já existe na DB como entidade conhecida
+                    existing_entity = await get_entity(db, addr)
+                    if existing_entity:
+                        continue
+
+                    # Tenta sugerir tipo automaticamente
+                    suggested_type = None
+                    suggested_reason = None
+                    for prefix in EXCHANGE_PREFIXES:
+                        if addr.startswith(prefix):
+                            suggested_type = "exchange"
+                            suggested_reason = f"Prefixo '{prefix}' associado a exchanges conhecidas"
+                            break
+
+                    # Contexto: txids que ligam este endereço ao watched
+                    related_txids = [
+                        e.txid for e in self._edges
+                        if (e.source == addr or e.target == addr)
+                        and e.txid
+                    ][:10]
+
+                    await queue_address_for_review(
+                        db=db,
+                        address=addr,
+                        detection_source="graph_builder",
+                        context={
+                            "watched_address": self.watched_address,
+                            "related_txids": related_txids,
+                            "node_type": self._nodes.get(addr, {}) and
+                                         self._nodes[addr].type.value if addr in self._nodes else "unknown",
+                        },
+                        suggested_type=suggested_type,
+                        suggested_reason=suggested_reason,
+                    )
+                break  # só precisa de uma iteração
+        except Exception as e:
+            logger.warning(f"Não foi possível enfileirar endereços para revisão: {e}")
 
     async def _collect_all_transactions(self) -> list[dict]:
         tasks = [fetch_transaction(txid) for txid in list(self._visited_txids)[:50]]

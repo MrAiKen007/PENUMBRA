@@ -4,7 +4,8 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { WalletManager } from '@/components/wallet/WalletManager'
 import { useState } from 'react'
-import { Shield, Bell, Database } from 'lucide-react'
+import { Shield, Bell, Database, Search, Plus } from 'lucide-react'
+import { externalAddressApi, entityApi } from '@/lib/api'
 
 export function SettingsPage() {
   const [rpcConfig, setRpcConfig] = useState({
@@ -13,6 +14,46 @@ export function SettingsPage() {
     user: '',
     password: '',
   })
+
+  // External Address states
+  const [showExternalForm, setShowExternalForm] = useState(false)
+  const [externalAddress, setExternalAddress] = useState('')
+  const [externalName, setExternalName] = useState('')
+  const [externalLoading, setExternalLoading] = useState(false)
+  const [externalError, setExternalError] = useState<string | null>(null)
+  const [externalSuccess, setExternalSuccess] = useState<string | null>(null)
+
+  const handleAddExternalAddress = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!externalAddress.trim() || !externalName.trim()) return
+
+    setExternalLoading(true)
+    setExternalError(null)
+    setExternalSuccess(null)
+
+    try {
+      // First, try to fetch UTXOs to validate the address
+      const utxoResult = await externalAddressApi.getUTXOs(externalAddress.trim())
+
+      // Then save as entity (known address)
+      await entityApi.create({
+        address: externalAddress.trim(),
+        name: externalName.trim(),
+        entity_type: 'unknown',
+        risk_level: 'medium',
+        source: 'user',
+      })
+
+      setExternalSuccess(`Endereço adicionado: ${externalName} (${utxoResult.count} UTXOs encontrados)`)
+      setExternalAddress('')
+      setExternalName('')
+      setShowExternalForm(false)
+    } catch (err: any) {
+      setExternalError(err.response?.data?.detail || 'Erro ao adicionar endereço')
+    } finally {
+      setExternalLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -23,8 +64,93 @@ export function SettingsPage() {
         </p>
       </div>
 
+      {externalSuccess && (
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-green-800 text-sm">{externalSuccess}</p>
+        </div>
+      )}
+
+      {externalError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800 text-sm">{externalError}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <WalletManager />
+
+        <Card title="Endereços Externos" subtitle="Gerir endereços Bitcoin externos">
+          {!showExternalForm ? (
+            <div className="space-y-4">
+              <p className="text-sm text-[#6B6B6B]">
+                Adiciona endereços Bitcoin externos para consultar UTXOs e monitorizar.
+              </p>
+              <Button
+                onClick={() => setShowExternalForm(true)}
+                className="w-full flex items-center justify-center gap-2"
+              >
+                <Search className="w-4 h-4" />
+                Adicionar Endereço Externo
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleAddExternalAddress} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#0A0A0A] mb-2">
+                  Endereço Bitcoin
+                </label>
+                <input
+                  type="text"
+                  value={externalAddress}
+                  onChange={(e) => setExternalAddress(e.target.value)}
+                  placeholder="bc1q... ou 1... ou 3..."
+                  className="w-full px-4 py-2 border border-[#E5E5E5] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF5533] font-mono text-sm"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#0A0A0A] mb-2">
+                  Nome/Label
+                </label>
+                <input
+                  type="text"
+                  value={externalName}
+                  onChange={(e) => setExternalName(e.target.value)}
+                  placeholder="Ex: Exchange Binance, Mixer, etc."
+                  className="w-full px-4 py-2 border border-[#E5E5E5] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF5533]"
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  disabled={externalLoading}
+                  className="flex-1 flex items-center justify-center gap-2"
+                >
+                  {externalLoading ? 'A adicionar...' : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Adicionar
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowExternalForm(false)
+                    setExternalAddress('')
+                    setExternalName('')
+                    setExternalError(null)
+                  }}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          )}
+        </Card>
 
         <Card title="Bitcoin Core RPC" subtitle="Configuração do nó">
           <div className="space-y-4">

@@ -15,4 +15,7 @@ test_full_graph.py
 test_graph_api.py
 test_graph_debug.py
 test_wallet.py
+check_db.py
 redistribute.py
+simulate_privacy_scenarios.py
+contaminate_regtest.py

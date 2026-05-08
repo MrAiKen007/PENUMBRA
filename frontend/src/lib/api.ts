@@ -11,6 +11,8 @@ import type {
   AlertSummary,
   WalletInfo,
   WalletListResponse,
+  Entity,
+  EntityCreateRequest,
 } from '@/types'
 
 const api = axios.create({
@@ -151,6 +153,49 @@ export const walletApi = {
   getAddresses: async (): Promise<{ addresses: Array<{ address: string; label: string; txids: string[]; amount: number }> }> => {
     const { data } = await api.get('/wallet/addresses')
     return data
+  },
+}
+
+// External Address API (Watch-only UTXOs)
+export const externalAddressApi = {
+  getUTXOs: async (address: string): Promise<{ address: string; utxos: UTXO[]; count: number; source: string; warning?: string }> => {
+    const { data } = await api.get(`/address/${address}/utxos`)
+    return data
+  },
+}
+
+// Entity API (User-generated KYC/Exchange/Mixer database)
+export const entityApi = {
+  getAll: async (entityType?: string, riskLevel?: string): Promise<{ entities: Entity[] }> => {
+    const { data } = await api.get('/entities', {
+      params: { entity_type: entityType, risk_level: riskLevel }
+    })
+    return { entities: data }
+  },
+
+  getByAddress: async (address: string): Promise<Entity | null> => {
+    try {
+      const { data } = await api.get(`/entities/${address}`)
+      return data
+    } catch (err: any) {
+      if (err.response?.status === 404) return null
+      throw err
+    }
+  },
+
+  create: async (entity: EntityCreateRequest): Promise<Entity> => {
+    const { data } = await api.post('/entities', entity)
+    return data
+  },
+
+  delete: async (address: string): Promise<{ message: string; address: string }> => {
+    const { data } = await api.delete(`/entities/${address}`)
+    return data
+  },
+
+  search: async (query: string): Promise<{ entities: Entity[] }> => {
+    const { data } = await api.get(`/entities/search/${encodeURIComponent(query)}`)
+    return { entities: data }
   },
 }
 

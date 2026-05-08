@@ -12,6 +12,8 @@ from app.db.models import (
     UserConfig,
     PrivacyScoreHistory,
     AddressLabel,
+    AddressEntity,
+    PendingAddressReview,
 )
 
 from app.db.crud import (
@@ -30,6 +32,18 @@ from app.db.crud import (
     get_privacy_score_history,
     set_address_label,
     get_address_label,
+    create_or_update_entity,
+    get_entity,
+    get_all_entities,
+    delete_entity,
+    search_entities,
+    # Pending address review
+    queue_address_for_review,
+    get_pending_reviews,
+    get_pending_review,
+    label_pending_review,
+    dismiss_pending_review,
+    count_pending_reviews,
 )
 
 __all__ = [
@@ -43,6 +57,8 @@ __all__ = [
     "UserConfig",
     "PrivacyScoreHistory",
     "AddressLabel",
+    "AddressEntity",
+    "PendingAddressReview",
     "create_or_update_utxo",
     "get_utxo",
     "get_all_utxos",
@@ -57,4 +73,15 @@ __all__ = [
     "get_privacy_score_history",
     "set_address_label",
     "get_address_label",
+    "create_or_update_entity",
+    "get_entity",
+    "get_all_entities",
+    "delete_entity",
+    "search_entities",
+    "queue_address_for_review",
+    "get_pending_reviews",
+    "get_pending_review",
+    "label_pending_review",
+    "dismiss_pending_review",
+    "count_pending_reviews",
 ]

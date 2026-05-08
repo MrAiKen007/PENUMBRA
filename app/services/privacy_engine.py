@@ -2,30 +2,90 @@ from typing import Optional, List
 from app.core.bitcoin_rpc import rpc_cliente
 from app.models.privacy import UTXO, UTXOLabel, ScoreBreakdown, PrivacyAlert, PrivacyReport
 from app.services.wallet_service import WalletManager
+from sqlalchemy import select
+from app.db.database import AsyncSessionLocal
+from app.db.models import CachedUTXO
+
+# Allow nested event loops (for Jupyter/notebook compatibility)
+import nest_asyncio
+nest_asyncio.apply()
 
 def get_wallet_utxos(wallet_name: Optional[str] = None) -> List[UTXO]:
+    """
+    Busca UTXOs da carteira e faz merge com labels da DB cache.
+    Prioriza labels da DB (onde fizemos contaminação manual).
+    """
     try:
-
         target_wallet = wallet_name or WalletManager.get_current_wallet()
+
+        # Fallback: se não houver carteira selecionada, tenta usar a primeira carregada
+        if not target_wallet:
+            from app.services.wallet_service import list_loaded_wallets
+            loaded_wallets = list_loaded_wallets()
+            if loaded_wallets:
+                target_wallet = loaded_wallets[0]
+                WalletManager.set_current_wallet(target_wallet)
+                print(f"[get_wallet_utxos] Auto-selected wallet: {target_wallet}")
+            else:
+                print("[get_wallet_utxos] No wallet available")
+                return []
+
         unspents = rpc_cliente("listunspent", [0, 9999999], wallet=target_wallet)
+
+        # Buscar UTXOs da DB cache com labels personalizados (sync via asyncio.run)
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        async def fetch_cached():
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(CachedUTXO))
+                return {f"{u.txid}:{u.vout}": u for u in result.scalars().all()}
+
+        try:
+            cached_utxos = loop.run_until_complete(fetch_cached())
+        except Exception as e:
+            print(f"[get_wallet_utxos] DB fetch error: {e}")
+            cached_utxos = {}
+
         utxos = []
         for u in unspents:
             value_sats = int(u["amount"] * 100_000_000)
-            core_label = u.get("label", "").lower()
+            txid = u["txid"]
+            vout = u["vout"]
+            utxo_id = f"{txid}:{vout}"
+
+            # Priorizar label da DB cache
             utxo_label = UTXOLabel.UNKNOWN
-            
-            if "kyc" in core_label:
-                utxo_label = UTXOLabel.KYC
-            elif "doxxic" in core_label:
-                utxo_label = UTXOLabel.DOXXIC
-            elif "safe" in core_label:
-                utxo_label = UTXOLabel.SAFE
-            elif "mixed" in core_label:
-                utxo_label = UTXOLabel.MIXED
+            if utxo_id in cached_utxos:
+                cached = cached_utxos[utxo_id]
+                label_str = (cached.label or "").lower()
+                if "kyc" in label_str:
+                    utxo_label = UTXOLabel.KYC
+                elif "doxxic" in label_str:
+                    utxo_label = UTXOLabel.DOXXIC
+                elif "safe" in label_str:
+                    utxo_label = UTXOLabel.SAFE
+                elif "mixed" in label_str:
+                    utxo_label = UTXOLabel.MIXED
+            else:
+                # Fallback para label do Core
+                core_label = u.get("label", "").lower()
+                if "kyc" in core_label:
+                    utxo_label = UTXOLabel.KYC
+                elif "doxxic" in core_label:
+                    utxo_label = UTXOLabel.DOXXIC
+                elif "safe" in core_label:
+                    utxo_label = UTXOLabel.SAFE
+                elif "mixed" in core_label:
+                    utxo_label = UTXOLabel.MIXED
 
             utxos.append(UTXO(
-                txid=u["txid"],
-                vout=u["vout"],
+                txid=txid,
+                vout=vout,
                 value=value_sats,
                 address=u["address"],
                 label=utxo_label,
@@ -33,7 +93,9 @@ def get_wallet_utxos(wallet_name: Optional[str] = None) -> List[UTXO]:
             ))
         return utxos
     except Exception as e:
-        print(f"Erro ao obter UTXOs do Bitcoin Core: {e}")
+        print(f"[get_wallet_utxos] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def count_address_appearances(address: str, all_wallet_utxos: Optional[list[UTXO]] = None) -> int:

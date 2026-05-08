@@ -18,10 +18,10 @@ class Settings(BaseSettings):
 
     BITCOIN_RPC_USER: str = os.getenv("BITCOIN_RPC_USER", "")
     BITCOIN_RPC_PASSWORD: str = os.getenv("BITCOIN_RPC_PASSWORD", "")
-    BITCOIN_RPC_PORT: int = int(os.getenv("BITCOIN_RPC_PORT", "15443"))
+    BITCOIN_RPC_PORT: int = int(os.getenv("BITCOIN_RPC_PORT", ""))
     BITCOIN_RPC_HOST: str = os.getenv("BITCOIN_RPC_HOST", "localhost")
     BITCOIN_ZMQ_HOST: str = os.getenv("BITCOIN_ZMQ_HOST", "localhost")
-    BITCOIN_ZMQ_PORT: int = int(os.getenv("BITCOIN_ZMQ_PORT", "28332"))
+    BITCOIN_ZMQ_PORT: int = int(os.getenv("BITCOIN_ZMQ_PORT", ""))
 
     @property
     def BITCOIN_RPC_URL(self) -> str:

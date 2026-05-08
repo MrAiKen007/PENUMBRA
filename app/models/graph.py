@@ -99,3 +99,5 @@ class GraphData(BaseModel):
     depth_reached: int
     warnings: list[str]
     stats: dict
+    needs_manual_input: bool = False
+    manual_input_reason: Optional[str] = None
